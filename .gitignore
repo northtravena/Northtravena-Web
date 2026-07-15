@@ -1,0 +1,59 @@
+# ── Dependencies ────────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# ── Build output ─────────────────────────────────────────────────
+dist/
+dist-ssr/
+build/
+out/
+
+# ── Environment variables ────────────────────────────────────────
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+
+# ── Logs ─────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ── Testing & coverage ───────────────────────────────────────────
+coverage/
+*.lcov
+.nyc_output/
+
+# ── TypeScript ───────────────────────────────────────────────────
+*.tsbuildinfo
+
+# ── Vite ─────────────────────────────────────────────────────────
+.vite/
+vite.config.ts.timestamp-*
+vite.config.js.timestamp-*
+
+# ── Editor & OS ──────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ── Misc ─────────────────────────────────────────────────────────
+*.local
+.cache/
+.temp/
+.tmp/
