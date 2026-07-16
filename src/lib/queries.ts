@@ -4,7 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
-import type { Booking, Captain, UserService, Service, ServiceType, VehicleRate, AdminUser, Passenger, PassengerLocation } from "@/types/api";
+import type { Booking, Captain, UserService, Service, ServiceType, VehicleRate, AdminUser, Passenger, PassengerLocation, Complaint } from "@/types/api";
 
 // ─── Users (for dropdowns) ───────────────────────────────────────────────────
 export function useAllUsers() {
@@ -384,5 +384,24 @@ export function useUpdateFirebaseBooking() {
     mutationFn: ({ id, status }: { id: string; status: string }) =>
       api.patch(`/firebase/bookings/${id}`, { status }),
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.firebaseBookings() }),
+  });
+}
+
+// ─── Complaints ──────────────────────────────────────────────────────────────
+export function useAdminComplaints() {
+  return useQuery({
+    queryKey: ["admin", "complaints"],
+    queryFn: () => api.get<Complaint[]>("/admin/complaints"),
+  });
+}
+
+export function useUpdateComplaintStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) =>
+      api.patch(`/admin/complaints/${id}`, { status }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "complaints"] });
+    },
   });
 }

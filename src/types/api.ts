@@ -171,3 +171,16 @@ export interface Passenger {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface Complaint {
+  id: string;
+  type: "passenger-vs-captain" | "captain-vs-passenger" | "tourist-booking";
+  category?: string;
+  complainantName: string;
+  timestamp: string;
+  description: string;
+  status: "open" | "in-review" | "resolved";
+  relatedCaptain?: string;
+  relatedPassenger?: string;
+  bookingId?: string;
+}
