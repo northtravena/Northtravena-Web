@@ -1,6 +1,9 @@
 // src/lib/api.ts — Centralized fetch wrapper with auth token management
 
-const BASE = import.meta.env.VITE_API_URL ?? "/api/v1";
+const BASE = import.meta.env.PROD
+  ? "https://api.northtravena.com/api/v1"
+  : "/api/v1";
+
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem("nt_token");
