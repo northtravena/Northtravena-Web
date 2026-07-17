@@ -11,7 +11,7 @@ import {
   ArrowRight, Banknote, Layers,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useFirebaseBookings, useUpdateFirebaseBooking } from "@/lib/queries";
+import { useFirebaseBookings } from "@/lib/queries";
 import { api } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -54,7 +54,22 @@ interface FirebaseBooking {
   status: string;
   createdAt?: string | { _seconds: number; _nanoseconds: number };
   updatedAt?: string;
+
+  // Real-time ride matching & rating fields
+  acceptedCaptainId?: string;
+  acceptedCaptainName?: string;
+  acceptedAt?: string | { _seconds: number; _nanoseconds: number };
+  _feedback?: {
+    id: string;
+    booking_id: string;
+    user_id: string;
+    rating: number;
+    comment: string;
+    created_at: string;
+  };
+  _captain?: any;
 }
+
 
 type FbStatus = "Pending" | "Approved" | "Completed" | "Cancelled";
 
@@ -135,6 +150,7 @@ function statusConfig(s: string) {
   if (k === "pending") return { label: "Pending", color: "bg-amber-100 text-amber-700", dot: "bg-amber-500" };
   if (k === "cancelled" || k === "canceled") return { label: "Cancelled", color: "bg-red-100 text-red-700", dot: "bg-red-500" };
   if (k === "completed") return { label: "Completed", color: "bg-blue-100 text-blue-700", dot: "bg-blue-500" };
+  if (k === "accepted") return { label: "Accepted", color: "bg-sky-100 text-sky-700", dot: "bg-sky-500" };
   return { label: s, color: "bg-gray-100 text-gray-600", dot: "bg-gray-400" };
 }
 
@@ -168,13 +184,11 @@ function avatarColor(name: string) {
 
 // ─── Booking Detail Drawer (slides in from the right) ────────────────────────
 function BookingDrawer({
-  booking, open, onClose, onUpdateStatus, updatingId,
+  booking, open, onClose,
 }: {
   booking: FirebaseBooking | null;
   open: boolean;
   onClose: () => void;
-  onUpdateStatus: (id: string, status: FbStatus) => void;
-  updatingId: string | null;
 }) {
   // Lock body scroll while open
   useEffect(() => {
@@ -376,6 +390,82 @@ function BookingDrawer({
             </div>
           )}
 
+          {/* Matched Captain */}
+          {booking.acceptedCaptainId && (
+            <DrawerSection title="Matched Captain">
+              <div className="p-3 space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold flex-shrink-0">
+                    {getInitials(booking.acceptedCaptainName || "Captain")}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">{booking.acceptedCaptainName}</p>
+                    {booking._captain?.phoneNumber && (
+                      <p className="text-xs text-gray-500">{booking._captain.phoneNumber}</p>
+                    )}
+                  </div>
+                </div>
+
+                {booking._captain && (booking._captain.vehicle || booking._captain.vehicleModel || booking._captain.vehiclePlate) && (
+                  <div className="pt-2 border-t border-gray-100 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-400">Vehicle</span>
+                      <span className="font-semibold text-gray-700">
+                        {booking._captain.vehicle || "—"}
+                        {booking._captain.vehicleModel && ` (${booking._captain.vehicleModel})`}
+                      </span>
+                    </div>
+                    {booking._captain.vehiclePlate && (
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-400">Plate Number</span>
+                        <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800 font-semibold uppercase tracking-wide">
+                          {booking._captain.vehiclePlate}
+                        </span>
+                      </div>
+                    )}
+                    {booking._captain.vehicleType && (
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-400">Category</span>
+                        <span className="font-semibold text-blue-600">
+                          {booking._captain.vehicleType}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {booking.acceptedAt && (
+                  <div className="pt-2 border-t border-gray-100 flex justify-between text-[11px] text-gray-400">
+                    <span>Accepted Time</span>
+                    <span>{resolveTimestamp(booking.acceptedAt)}</span>
+                  </div>
+                )}
+              </div>
+            </DrawerSection>
+          )}
+
+          {/* Passenger Review */}
+          {booking._feedback && (
+            <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
+              <div className="flex justify-between items-center mb-1.5">
+                <p className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wide">Passenger Review</p>
+                <div className="flex items-center gap-0.5 text-amber-500">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <span key={i} className="text-xs">
+                      {i < (booking._feedback?.rating ?? 0) ? "★" : "☆"}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <p className="text-sm text-gray-700 italic">"{booking._feedback.comment || "No comment left."}"</p>
+              {booking._feedback.created_at && (
+                <p className="text-[9px] text-gray-400 mt-2 text-right">
+                  Reviewed on {new Date(booking._feedback.created_at).toLocaleDateString()}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Booking metadata */}
           <DrawerSection title="Booking Info">
             <div className="px-4 py-3 space-y-2">
@@ -392,56 +482,15 @@ function BookingDrawer({
         </div>
 
         {/* ── Footer actions ───────────────────────────────────────────────── */}
-        {(status === "Pending" || status === "Approved") && (() => {
-          // Check if this is an auto-approved type (oneWay or roundTrip)
-          const tripType = (booking.tripType as string)?.toLowerCase().replace(/[_\s-]/g, "");
-          const isAutoApproved = tripType === "oneway" || tripType === "roundtrip";
-
-          // Don't show manual approval buttons for auto-approved types
-          if (status === "Pending" && isAutoApproved) {
-            return (
-              <div className="flex-shrink-0 px-5 py-4 border-t bg-gray-50">
-                <div className="text-center text-sm text-gray-500 italic">
-                  🚀 This {tripType === "oneway" ? "One Way" : "Round Trip"} ride is being auto-approved...
-                </div>
-              </div>
-            );
-          }
-
-          return (
-            <div className="flex-shrink-0 px-5 py-4 border-t bg-gray-50 flex gap-2">
-              {status === "Pending" && (
-                <>
-                  <Button
-                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 rounded-xl h-10 text-sm"
-                    disabled={updatingId === booking.id}
-                    onClick={() => { onUpdateStatus(booking.id, "Approved"); onClose(); }}
-                  >
-                    <CheckCircle className="w-4 h-4 mr-1.5" /> Approve
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="flex-1 text-red-600 hover:bg-red-50 border-red-200 rounded-xl h-10 text-sm"
-                    disabled={updatingId === booking.id}
-                    onClick={() => { onUpdateStatus(booking.id, "Cancelled"); onClose(); }}
-                  >
-                    <XCircle className="w-4 h-4 mr-1.5" /> Decline
-                  </Button>
-                </>
-              )}
-              {status === "Approved" && (
-                <Button
-                  variant="outline"
-                  className="flex-1 text-orange-600 hover:bg-orange-50 border-orange-200 rounded-xl h-10 text-sm"
-                  disabled={updatingId === booking.id}
-                  onClick={() => { onUpdateStatus(booking.id, "Cancelled"); onClose(); }}
-                >
-                  <XCircle className="w-4 h-4 mr-1.5" /> Cancel Booking
-                </Button>
-              )}
-            </div>
-          );
-        })()}
+        <div className="flex-shrink-0 px-5 py-4 border-t bg-gray-50">
+          <Button
+            variant="outline"
+            className="w-full rounded-xl h-10 text-sm"
+            onClick={onClose}
+          >
+            Close Details
+          </Button>
+        </div>
       </div>
     </>
   );
@@ -485,55 +534,25 @@ function MetaRow({ label, value, mono = false }: { label: string; value: string;
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export function Services() {
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [selected, setSelected] = useState<FirebaseBooking | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [autoApproving, setAutoApproving] = useState(false);
-
+ 
   const { data: rawBookings = [], isLoading: loading, error, refetch } = useFirebaseBookings();
   const bookings = rawBookings as FirebaseBooking[];
-  const updateBooking = useUpdateFirebaseBooking();
-
-  // Manual auto-approve trigger
-  const handleAutoApprove = async () => {
-    setAutoApproving(true);
-    try {
-      const response = await api.post("/firebase/bookings/auto-approve", {});
-      const result = response as { approvedCount: number; skippedCount: number; message: string };
-      toast.success(`✅ ${result.message}`);
-      refetch(); // Refresh the list
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Auto-approval failed");
-    } finally {
-      setAutoApproving(false);
-    }
-  };
-
+ 
   // Open drawer
   const openDrawer = (b: FirebaseBooking) => {
     setSelected(b);
     // tiny rAF so the element is mounted before the open class is applied
     requestAnimationFrame(() => setDrawerOpen(true));
   };
-
+ 
   // Close drawer — animate out first, then clear data
   const closeDrawer = useCallback(() => {
     setDrawerOpen(false);
     setTimeout(() => setSelected(null), 380); // matches transition duration
   }, []);
 
-  const updateStatus = async (id: string, status: FbStatus) => {
-    setUpdatingId(id);
-    try {
-      await updateBooking.mutateAsync({ id, status });
-      const label = status === "approved" ? "Approved" : status === "cancelled" ? "Cancelled" : status;
-      toast.success(`Booking ${label.toLowerCase()} successfully`);
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Update failed");
-    } finally {
-      setUpdatingId(null);
-    }
-  };
 
   const count = (s: string) => {
     return bookings.filter((b) => {
@@ -583,8 +602,6 @@ export function Services() {
         booking={selected}
         open={drawerOpen}
         onClose={closeDrawer}
-        onUpdateStatus={updateStatus}
-        updatingId={updatingId}
       />
 
       {/* Stat Cards */}
@@ -613,24 +630,6 @@ export function Services() {
             <span className="text-xs font-normal text-gray-400 ml-1">— click a row to view details</span>
           </CardTitle>
           <div className="flex gap-2">
-            <Button
-              onClick={handleAutoApprove}
-              disabled={autoApproving}
-              variant="outline"
-              size="sm"
-              className="gap-2 bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100"
-            >
-              {autoApproving ? (
-                <>
-                  <div className="animate-spin w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full" />
-                  Auto-approving...
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="w-4 h-4" /> Auto-Approve Pending
-                </>
-              )}
-            </Button>
             <Button onClick={() => refetch()} variant="outline" size="sm" className="gap-2">
               <RefreshCw className="w-4 h-4" /> Refresh
             </Button>
@@ -652,7 +651,6 @@ export function Services() {
                   <TableHead>Pickup Date</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
-                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -700,49 +698,6 @@ export function Services() {
                       </TableCell>
                       <TableCell className="text-right font-semibold text-gray-800">
                         {resolveAmount(b).toLocaleString()}
-                      </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-1">
-                          {b.status?.toLowerCase() === "Pending" && (() => {
-                            // Check if this is an auto-approved type
-                            const tripType = (b.tripType as string)?.toLowerCase().replace(/[_\s-]/g, "");
-                            const isAutoApproved = tripType === "oneway" || tripType === "roundtrip";
-
-                            if (isAutoApproved) {
-                              return (
-                                <span className="text-xs text-gray-400 italic">Auto-approving...</span>
-                              );
-                            }
-
-                            return (
-                              <>
-                                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-xs px-2 h-7"
-                                  disabled={updatingId === b.id}
-                                  onClick={() => updateStatus(b.id, "Approved")}>
-                                  Approve
-                                </Button>
-                                <Button size="sm" variant="outline"
-                                  className="text-red-600 hover:bg-red-50 text-xs px-2 h-7"
-                                  disabled={updatingId === b.id}
-                                  onClick={() => updateStatus(b.id, "Cancelled")}>
-                                  Decline
-                                </Button>
-                              </>
-                            );
-                          })()}
-                          {b.status?.toLowerCase() === "Approved" && (
-                            <Button size="sm" variant="outline"
-                              className="text-orange-600 hover:bg-orange-50 text-xs px-2 h-7"
-                              disabled={updatingId === b.id}
-                              onClick={() => updateStatus(b.id, "Cancelled")}>
-                              Cancel
-                            </Button>
-                          )}
-                          {(b.status?.toLowerCase() === "Cancelled" ||
-                            b.status?.toLowerCase() === "Completed") && (
-                              <span className="text-xs text-gray-400">—</span>
-                            )}
-                        </div>
                       </TableCell>
                     </TableRow>
                   );

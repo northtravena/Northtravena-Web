@@ -110,7 +110,7 @@ function ServiceForm({ initial, serviceTypes, onSave, onClose }: ServiceFormProp
             <label className="block text-xs font-medium text-gray-600 mb-1">Status</label>
             <select
               value={form.status}
-              onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+              onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as "active" | "inactive" }))}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
             >
               <option value="active">Active</option>
