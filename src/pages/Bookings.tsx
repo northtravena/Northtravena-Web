@@ -59,13 +59,15 @@ interface FirebaseBooking {
   acceptedCaptainId?: string;
   acceptedCaptainName?: string;
   acceptedAt?: string | { _seconds: number; _nanoseconds: number };
+  captainId?: string;
+  assignedAt?: string | { _seconds: number; _nanoseconds: number };
   _feedback?: {
     id: string;
     booking_id: string;
     user_id: string;
     rating: number;
     comment: string;
-    created_at: string;
+    created_at: string | { _seconds: number; _nanoseconds: number };
   };
   _captain?: any;
 }
@@ -391,15 +393,17 @@ function BookingDrawer({
           )}
 
           {/* Matched Captain */}
-          {booking.acceptedCaptainId && (
+          {(booking.acceptedCaptainId || booking.captainId) && (
             <DrawerSection title="Matched Captain">
               <div className="p-3 space-y-3">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold flex-shrink-0">
-                    {getInitials(booking.acceptedCaptainName || "Captain")}
+                    {getInitials(booking._captain?.fullName || booking.acceptedCaptainName || "Captain")}
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-gray-800">{booking.acceptedCaptainName}</p>
+                    <p className="text-sm font-semibold text-gray-800">
+                      {booking._captain?.fullName || booking.acceptedCaptainName || "Captain"}
+                    </p>
                     {booking._captain?.phoneNumber && (
                       <p className="text-xs text-gray-500">{booking._captain.phoneNumber}</p>
                     )}
@@ -434,10 +438,10 @@ function BookingDrawer({
                   </div>
                 )}
 
-                {booking.acceptedAt && (
+                {(booking.acceptedAt || booking.assignedAt) && (
                   <div className="pt-2 border-t border-gray-100 flex justify-between text-[11px] text-gray-400">
                     <span>Accepted Time</span>
-                    <span>{resolveTimestamp(booking.acceptedAt)}</span>
+                    <span>{resolveTimestamp(booking.acceptedAt || booking.assignedAt)}</span>
                   </div>
                 )}
               </div>
@@ -460,7 +464,7 @@ function BookingDrawer({
               <p className="text-sm text-gray-700 italic">"{booking._feedback.comment || "No comment left."}"</p>
               {booking._feedback.created_at && (
                 <p className="text-[9px] text-gray-400 mt-2 text-right">
-                  Reviewed on {new Date(booking._feedback.created_at).toLocaleDateString()}
+                  Reviewed on {resolveTimestamp(booking._feedback.created_at)}
                 </p>
               )}
             </div>
