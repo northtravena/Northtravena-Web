@@ -342,6 +342,54 @@ export function useUpdateFirebaseCaptainStatus() {
   });
 }
 
+export function useTopUpFirebaseCaptainWallet() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, amount, notes }: { id: string; amount: number; notes?: string }) =>
+      api.post(`/firebase/captains/${id}/topup`, { amount, notes }),
+    onSuccess: (_, variables) => {
+      qc.invalidateQueries({ queryKey: ["firebase", "captains"] });
+      qc.invalidateQueries({ queryKey: ["firebase", "captain-wallet-tx", variables.id] });
+    },
+  });
+}
+
+export function useToggleFirebaseCaptainSuspension() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, isSuspended, reason }: { id: string; isSuspended: boolean; reason?: string }) =>
+      api.patch(`/firebase/captains/${id}/suspend`, { isSuspended, reason }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["firebase", "captains"] });
+    },
+  });
+}
+
+export function useCaptainWalletTransactions(captainId?: string) {
+  return useQuery({
+    queryKey: ["firebase", "captain-wallet-tx", captainId],
+    queryFn: () => api.get<unknown[]>(`/firebase/captains/${captainId}/wallet-transactions`),
+    enabled: !!captainId,
+  });
+}
+
+export function useCaptainPayableRides(captainId?: string) {
+  return useQuery({
+    queryKey: ["firebase", "captain-payable-rides", captainId],
+    queryFn: () => api.get<unknown[]>(`/firebase/captains/${captainId}/payable-rides`),
+    enabled: !!captainId,
+  });
+}
+
+export function useCaptainPaymentHistory(captainId?: string) {
+  return useQuery({
+    queryKey: ["firebase", "captain-payments", captainId],
+    queryFn: () => api.get<unknown[]>(`/firebase/captains/${captainId}/payments`),
+    enabled: !!captainId,
+  });
+}
+
+
 export function useUpdateCaptain() {
   const qc = useQueryClient();
   return useMutation({

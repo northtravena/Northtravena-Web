@@ -5,8 +5,17 @@ import { Button } from "@/components/ui/button";
 import { MapPin, Car, Layers, Users, UserCheck } from "lucide-react";
 
 export type VehicleTypeFilter = "all" | "car" | "van" | "other";
-export type MatchStatusFilter = "all" | "matched" | "unmatched" | "on-hold";
-export type CaptainStatusFilter = "all" | "active" | "pending" | "inactive" | "rejected";
+export type MatchStatusFilter = "all" | "Pending" | "Approved" | "Ongoing" | "Completed" | "Cancelled";
+
+const RIDE_STATUSES: { value: MatchStatusFilter; label: string; color: string }[] = [
+  { value: "all", label: "All Rides", color: "" },
+  { value: "Ongoing", label: "Ongoing", color: "text-blue-600 font-semibold" },
+  { value: "Completed", label: "Completed", color: "text-gray-500 font-semibold" },
+  { value: "Pending", label: "Pending", color: "text-amber-600 font-semibold" },
+  { value: "Approved", label: "Approved", color: "text-emerald-600 font-semibold" },
+  { value: "Cancelled", label: "Cancelled", color: "text-red-500 font-semibold" },
+];
+export type CaptainStatusFilter = "all" | "active" | "live" | "offline" | "pending" | "inactive" | "rejected";
 
 interface MapControlsProps {
   onLocationChange: (lat: number, lng: number, radius: number) => void;
@@ -36,19 +45,15 @@ const VEHICLE_TYPES: { value: VehicleTypeFilter; label: string }[] = [
 ];
 
 const CAPTAIN_STATUSES: { value: CaptainStatusFilter; label: string; color: string }[] = [
-  { value: "all", label: "All", color: "" },
-  { value: "active", label: "Active", color: "text-emerald-600" },
+  { value: "all", label: "All Captains", color: "" },
+  { value: "active", label: "Approved", color: "text-emerald-600" },
+  { value: "live", label: "🟢 Live Now", color: "text-emerald-700" },
+  { value: "offline", label: "⚪ Offline", color: "text-gray-500" },
   { value: "pending", label: "Pending", color: "text-amber-600" },
-  { value: "inactive", label: "Inactive", color: "text-gray-500" },
   { value: "rejected", label: "Rejected", color: "text-red-500" },
 ];
 
-const MATCH_STATUSES: { value: MatchStatusFilter; label: string; color: string }[] = [
-  { value: "all", label: "All", color: "" },
-  { value: "matched", label: "Matched", color: "text-emerald-600" },
-  { value: "unmatched", label: "Unmatched", color: "text-amber-600" },
-  { value: "on-hold", label: "On Hold", color: "text-gray-500" },
-];
+
 
 export function MapControls({ onLocationChange, vehicleTypeFilter = "all", onVehicleTypeChange, matchStatusFilter = "all", onMatchStatusChange, captainStatusFilter = "all", onCaptainStatusChange, clusteringEnabled = false, onClusteringToggle }: MapControlsProps) {
   const [radius, setRadius] = useState(50);
@@ -120,19 +125,19 @@ export function MapControls({ onLocationChange, vehicleTypeFilter = "all", onVeh
         </div>
       )}
 
-      {/* Match status filter */}
+      {/* Ride status filter for Bookings map */}
       {onMatchStatusChange && (
         <div className="flex items-center gap-1.5 ml-2">
           <Users className="w-3.5 h-3.5 text-gray-400" />
-          {MATCH_STATUSES.map((ms) => (
+          {RIDE_STATUSES.map((rs) => (
             <Button
-              key={ms.value}
-              variant={matchStatusFilter === ms.value ? "default" : "outline"}
+              key={rs.value}
+              variant={matchStatusFilter === rs.value ? "default" : "outline"}
               size="sm"
-              onClick={() => onMatchStatusChange(ms.value)}
-              className={`h-7 text-xs ${matchStatusFilter === ms.value && ms.value !== "all" ? ms.color : ""}`}
+              onClick={() => onMatchStatusChange(rs.value)}
+              className={`h-7 text-xs ${matchStatusFilter === rs.value && rs.value !== "all" ? rs.color : ""}`}
             >
-              {ms.label}
+              {rs.label}
             </Button>
           ))}
         </div>

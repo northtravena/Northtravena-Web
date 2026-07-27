@@ -94,7 +94,7 @@ const statusColor = (s: string) => {
   return "bg-red-100 text-red-700";
 };
 
-const PLATFORM_FEE_PCT = 0.10;
+const PLATFORM_FEE_PCT = 0.20; // 20% commission for Rides/Bookings
 
 export function Reports() {
   const { data: rawFbBookings = [], isLoading: loadingBookings, error: errorBookings, refetch: refetchBookings } = useFirebaseBookings();

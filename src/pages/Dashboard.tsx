@@ -10,7 +10,7 @@ import {
   MapPin, Clock, ArrowRight, Calendar, Wrench,
 } from "lucide-react";
 import {
-  useFirebaseBookings, useFirebaseUserServices,
+  useFirebaseBookings, useFirebaseUserServices, useFirebaseCaptains,
   usePendingUserServices, useActiveCaptains,
 } from "@/lib/queries";
 import { LiveCaptainMap } from "@/components/LiveCaptainMap";
@@ -125,6 +125,7 @@ function ApprovedPill() {
 export function Dashboard() {
   const { data: rawFbBookings = [] }                               = useFirebaseBookings();
   const { data: rawFbServices = [] }                               = useFirebaseUserServices();
+  const { data: rawFbCaptains = [] }                               = useFirebaseCaptains();
   const { data: pendingServicesResult, isLoading, error }           = usePendingUserServices(1, 1000);
   const { data: activeCaptainsResult }                              = useActiveCaptains(1, 1000);
 
@@ -132,7 +133,14 @@ export function Dashboard() {
   const pendingServices = pendingServicesResult?.data ?? [];
   const activeCaptains = activeCaptainsResult?.data ?? [];
 
-  const totalActiveCaptains = activeCaptainsResult?.pagination?.total ?? activeCaptains.length;
+  const fbCaptains = rawFbCaptains as Record<string, any>[];
+  const activeFbCaptains = fbCaptains.filter(
+    (c) => (c.status ?? "").toLowerCase() === "active" || c.approved === true
+  );
+
+  const totalActiveCaptains = activeFbCaptains.length > 0 
+    ? activeFbCaptains.length 
+    : (activeCaptainsResult?.pagination?.total ?? activeCaptains.length);
 
   const [mapCenter, setMapCenter] = useState({ lat: 35.9208, lng: 74.3145, radius: 50 });
   const [vehicleTypeFilter, setVehicleTypeFilter] = useState<VehicleTypeFilter>("all");
@@ -146,7 +154,7 @@ export function Dashboard() {
   const fbAmount = (b: FbBooking) => b.totalAmount ?? b.amount ?? b.fare ?? b.price ?? 0;
   const fbDate = (b: FbBooking) => b.pickupDate ?? b.date ?? "";
 
-  const PLATFORM_FEE_PCT = 0.10; // 10% platform commission
+  const PLATFORM_FEE_PCT = 0.20; // 20% platform commission for Rides/Bookings
 
   const activeBookings = fbBookings.filter(
     (b) => b.status?.toLowerCase() === "approved" && fbDate(b).startsWith(today)
@@ -158,9 +166,14 @@ export function Dashboard() {
 
   const bookingsToday = fbBookings.filter((b) => fbDate(b).startsWith(today)).length;
 
-  // Total Travena earnings = 10% commission on ALL completed bookings
+  const isCompleted = (s?: string) => {
+    const k = (s ?? "").toLowerCase();
+    return k === "completed" || k === "complete";
+  };
+
+  // Total Travena earnings = 20% commission on ALL completed bookings
   const totalRevenue = fbBookings
-    .filter((b) => b.status?.toLowerCase() === "completed")
+    .filter((b) => isCompleted(b.status))
     .reduce((sum, b) => sum + Math.round(fbAmount(b) * PLATFORM_FEE_PCT), 0);
 
   const stats = [
@@ -239,8 +252,6 @@ export function Dashboard() {
             onLocationChange={(lat, lng, radius) => setMapCenter({ lat, lng, radius })}
             vehicleTypeFilter={vehicleTypeFilter}
             onVehicleTypeChange={setVehicleTypeFilter}
-            matchStatusFilter={matchStatusFilter}
-            onMatchStatusChange={setMatchStatusFilter}
             captainStatusFilter={captainStatusFilter}
             onCaptainStatusChange={setCaptainStatusFilter}
             clusteringEnabled={clusteringEnabled}
@@ -251,9 +262,10 @@ export function Dashboard() {
             centerLng={mapCenter.lng}
             radiusKm={mapCenter.radius}
             height="420px"
+            showCaptains={true}
+            showRoutes={true}
             vehicleTypeFilter={vehicleTypeFilter}
             enableClustering={clusteringEnabled}
-            matchStatusFilter={matchStatusFilter}
             captainStatusFilter={captainStatusFilter}
           />
         </CardContent>

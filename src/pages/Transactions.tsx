@@ -57,7 +57,7 @@ const isPending = (s: string) => s === "Pending" || s === "pending";
 const isApproved = (s: string) => s === "Approved" || s === "accepted" || s === "approved";
 const isCanceled = (s: string) => s === "Canceled" || s === "Cancelled" || s === "cancelled" || s === "canceled";
 
-const PLATFORM_FEE_PCT = 0.10; // 10%
+const PLATFORM_FEE_PCT = 0.20; // 20% platform commission
 
 function fmt(amount: number) {
   return `Rs. ${Math.abs(amount).toLocaleString()}`;

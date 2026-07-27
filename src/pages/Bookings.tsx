@@ -16,7 +16,7 @@ import { useFirebaseBookings, useUpdateFirebaseBooking } from "@/lib/queries";
 import { api } from "@/lib/api";
 import { usePagination } from "@/lib/usePagination";
 import { Pagination } from "@/components/Pagination";
-import { LiveCaptainMap } from "@/components/LiveCaptainMap";
+import { BookingPinsMap, type BookingPin } from "@/components/BookingPinsMap";
 import { MapControls, type MatchStatusFilter, type CaptainStatusFilter } from "@/components/MapControls";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -191,11 +191,12 @@ function avatarColor(name: string) {
 
 // ─── Booking Detail Drawer (slides in from the right) ────────────────────────
 function BookingDrawer({
-  booking, open, onClose,
+  booking, open, onClose, onSeeOnMap,
 }: {
   booking: FirebaseBooking | null;
   open: boolean;
   onClose: () => void;
+  onSeeOnMap?: (booking: FirebaseBooking) => void;
 }) {
   // Lock body scroll while open
   useEffect(() => {
@@ -301,6 +302,17 @@ function BookingDrawer({
             <span className="text-blue-200 text-xs">Total Amount</span>
             <span className="text-white text-xl font-bold">{amount.toLocaleString()}</span>
           </div>
+
+          {/* See on Map Button */}
+          {onSeeOnMap && (
+            <button
+              onClick={() => onSeeOnMap(booking)}
+              className="w-full mt-3 py-2.5 px-4 bg-emerald-500 hover:bg-emerald-600 active:scale-[0.99] text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
+            >
+              <MapPin className="w-4 h-4" />
+              See This Ride on Map
+            </button>
+          )}
         </div>
 
         {/* ── Scrollable body ──────────────────────────────────────────────── */}
@@ -542,14 +554,15 @@ function MetaRow({ label, value, mono = false }: { label: string; value: string;
 }
 
 // ─── Status tabs ──────────────────────────────────────────────────────────────
-type StatusTab = "all" | "pending" | "approved" | "completed" | "canceled";
+type StatusTab = "all" | "ongoing" | "completed" | "pending" | "approved" | "canceled";
 
 const STATUS_TABS: { key: StatusTab; label: string; icon: React.ElementType; color: string }[] = [
-  { key: "all",       label: "All",        icon: Car,        color: "text-emerald-600" },
-  { key: "pending",   label: "Pending",    icon: Clock,      color: "text-amber-600" },
-  { key: "approved",  label: "Approved",   icon: Navigation, color: "text-blue-600" },
-  { key: "completed", label: "Completed",  icon: CheckCircle, color: "text-green-600" },
-  { key: "canceled",  label: "Canceled",   icon: XCircle,    color: "text-red-600" },
+  { key: "all",       label: "All Rides",  icon: Car,         color: "text-gray-600" },
+  { key: "ongoing",   label: "Ongoing",    icon: Navigation,  color: "text-blue-600" },
+  { key: "completed", label: "Completed",  icon: CheckCircle, color: "text-gray-600" },
+  { key: "pending",   label: "Pending",    icon: Clock,       color: "text-amber-600" },
+  { key: "approved",  label: "Approved",   icon: CheckCircle, color: "text-emerald-600" },
+  { key: "canceled",  label: "Cancelled",  icon: XCircle,     color: "text-red-600" },
 ];
 
 // ─── Main page ────────────────────────────────────────────────────────────────
@@ -562,7 +575,18 @@ export function Services() {
   const [clusteringEnabled, setClusteringEnabled] = useState(false);
   const [mapMatchFilter, setMapMatchFilter] = useState<MatchStatusFilter>("all");
   const [captainStatusFilter, setCaptainStatusFilter] = useState<CaptainStatusFilter>("all");
+  const [singleBookingMapId, setSingleBookingMapId] = useState<string | null>(null);
   const pagination = usePagination();
+
+  const handleSeeOnMap = (b: FirebaseBooking) => {
+    setSingleBookingMapId(b.id);
+    setDrawerOpen(false);
+    setTimeout(() => setSelected(null), 380);
+    setViewMode("map");
+    if (b.sourceLocation && typeof b.sourceLocation.lat === "number" && typeof b.sourceLocation.lng === "number") {
+      setMapCenter({ lat: b.sourceLocation.lat, lng: b.sourceLocation.lng, radius: 20 });
+    }
+  };
 
   const { data: rawBookings = [], isLoading: loading, error, refetch } = useFirebaseBookings();
   const bookings = rawBookings as FirebaseBooking[];
@@ -572,10 +596,11 @@ export function Services() {
   const filteredBookings = activeTab === "all"
     ? bookings
     : bookings.filter((b) => {
-        const s = b.status?.toLowerCase();
+        const s = (b.status || "").toLowerCase();
+        if (activeTab === "ongoing") return s === "ongoing" || s === "in_progress";
+        if (activeTab === "completed") return s === "completed" || s === "complete";
         if (activeTab === "pending") return s === "pending";
         if (activeTab === "approved") return s === "approved" || s === "accepted";
-        if (activeTab === "completed") return s === "completed" || s === "complete";
         if (activeTab === "canceled") return s === "canceled" || s === "cancelled";
         return true;
       });
@@ -594,10 +619,11 @@ export function Services() {
   // Status counts
   const countByStatus = (s: string) => {
     return bookings.filter((b) => {
-      const status = b.status?.toLowerCase();
+      const status = (b.status || "").toLowerCase();
+      if (s === "ongoing") return status === "ongoing" || status === "in_progress";
+      if (s === "completed") return status === "completed" || status === "complete";
       if (s === "pending") return status === "pending";
       if (s === "approved") return status === "approved" || status === "accepted";
-      if (s === "completed") return status === "completed" || status === "complete";
       if (s === "canceled") return status === "canceled" || status === "cancelled";
       return false;
     }).length;
@@ -661,6 +687,7 @@ export function Services() {
         booking={selected}
         open={drawerOpen}
         onClose={closeDrawer}
+        onSeeOnMap={handleSeeOnMap}
       />
 
       {/* Stat Cards */}
@@ -716,27 +743,30 @@ export function Services() {
             onLocationChange={(lat, lng, radius) => setMapCenter({ lat, lng, radius })}
             matchStatusFilter={mapMatchFilter}
             onMatchStatusChange={setMapMatchFilter}
-            captainStatusFilter={captainStatusFilter}
-            onCaptainStatusChange={setCaptainStatusFilter}
             clusteringEnabled={clusteringEnabled}
             onClusteringToggle={setClusteringEnabled}
           />
-          <div className="rounded-xl overflow-hidden border border-gray-200">
-            <LiveCaptainMap
-              centerLat={mapCenter.lat}
-              centerLng={mapCenter.lng}
-              radiusKm={mapCenter.radius}
-              height="500px"
-              showCaptains={true}
-              showPassengers={true}
-              showRoutes={true}
-              showConnections={true}
-              compactLegend={false}
-              enableClustering={clusteringEnabled}
-              matchStatusFilter={mapMatchFilter}
-              captainStatusFilter={captainStatusFilter}
-            />
-          </div>
+          <BookingPinsMap
+            height="550px"
+            centerLat={mapCenter.lat}
+            centerLng={mapCenter.lng}
+            statusFilter={mapMatchFilter === "all" ? "all" : mapMatchFilter}
+            singleBookingId={singleBookingMapId}
+            onClearSingleBooking={() => setSingleBookingMapId(null)}
+            bookings={bookings.map((b): BookingPin => ({
+              id: b.id,
+              passengerName: resolveName(b),
+              captainName: b.acceptedCaptainName || (b._captain as any)?.fullName || "",
+              status: b.status,
+              source: resolveSource(b),
+              destination: resolveDest(b),
+              sourceLocation: b.sourceLocation,
+              destinationLocation: b.destinationLocation,
+              totalAmount: resolveAmount(b),
+              pickupDate: resolveDate(b),
+              pickupTime: resolveTime(b),
+            }))}
+          />
         </div>
       )}
 
@@ -746,7 +776,7 @@ export function Services() {
           setActiveTab(v as StatusTab);
           pagination.setPage(1);
         }} className="w-full">
-          <TabsList className="grid w-full max-w-xl grid-cols-5">
+          <TabsList className="grid w-full max-w-3xl grid-cols-6">
             {STATUS_TABS.map(({ key, label, icon: Icon }) => (
               <TabsTrigger key={key} value={key} className="flex items-center gap-1.5">
                 <Icon className="w-4 h-4" />
@@ -784,7 +814,7 @@ export function Services() {
                           <TableHead>Pickup Date</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead className="text-right">Amount</TableHead>
-                          <TableHead className="text-right">Commission (10%)</TableHead>
+                          <TableHead className="text-right">Commission (20%)</TableHead>
                           {key === "pending" || key === "approved" ? (
                             <TableHead>Actions</TableHead>
                           ) : null}
@@ -837,7 +867,7 @@ export function Services() {
                                 {resolveAmount(b).toLocaleString()}
                               </TableCell>
                               <TableCell className="text-right font-medium text-amber-600">
-                                {Math.round(resolveAmount(b) * 0.10).toLocaleString()}
+                                {Math.round(resolveAmount(b) * 0.20).toLocaleString()}
                               </TableCell>
                               {key === "pending" && (
                                 <TableCell onClick={(e) => e.stopPropagation()}>

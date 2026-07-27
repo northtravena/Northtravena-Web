@@ -36,19 +36,20 @@ export interface Captain {
   _id?: string; // MongoDB ID
   id?: string;  // Firebase ID
   fullName: string;
+  email?: string;
   phone: string;
   cnic: string;
   licenceNumber: string;
-  vehicleType: "car" | "van" | "other";
+  vehicleType: "car" | "van" | "other" | string;
   vehicleModel: string;
   registrationPlate: string;
   seatCapacity: number;
   // GeoJSON Point — coordinates are [lng, lat]
-  routeFrom: { type?: string; coordinates: [number, number]; address: string };
-  routeTo: { type?: string; coordinates: [number, number]; address: string };
+  routeFrom?: { type?: string; coordinates: [number, number]; address: string };
+  routeTo?: { type?: string; coordinates: [number, number]; address: string };
   currentLocation?: { type?: string; coordinates: [number, number] };
-  status: "pending" | "active" | "inactive" | "rejected";
-  documentsSubmitted: {
+  status: "pending" | "active" | "inactive" | "rejected" | string;
+  documentsSubmitted?: {
     cnic: boolean;
     licence: boolean;
     registration: boolean;
@@ -62,9 +63,67 @@ export interface Captain {
     vehiclePicture?: string;
   };
   rating: number;
+  tripsCount?: number;
+  isVerified?: boolean;
+  
+  // Policy signed info
+  policySigned?: boolean;
+  signedName?: string;
+  signedCnic?: string;
+  policySignedAt?: string;
+
+  // Wallet & commission metrics
+  walletBalance?: number;
+  wallet?: number;
+  totalCommission?: number;
+  paidToTravena?: number;
+  remainingBalance?: number;
+
+  // Suspension status
+  isSuspended?: boolean;
+  suspended?: boolean;
+  suspensionReason?: string;
+  suspendedAt?: string;
+
   createdAt: string;
   approvedAt?: string;
 }
+
+export interface WalletTransaction {
+  id?: string;
+  _id?: string;
+  captainId: string;
+  amount: number;
+  type: string;
+  notes?: string;
+  previousBalance?: number;
+  newBalance?: number;
+  createdAt: string;
+}
+
+export interface PayableRide {
+  id?: string;
+  _id?: string;
+  captainId?: string;
+  passengerName?: string;
+  fare?: number;
+  amount?: number;
+  status?: string;
+  pickupLocation?: string;
+  dropLocation?: string;
+  createdAt?: string;
+}
+
+export interface CaptainPayment {
+  id?: string;
+  _id?: string;
+  captainId?: string;
+  amount: number;
+  paymentMethod?: string;
+  referenceNo?: string;
+  createdAt: string;
+}
+
 
 export interface Booking {
   _id: string;

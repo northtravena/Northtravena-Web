@@ -675,7 +675,8 @@ export function AppServices() {
                             </Button>
                           )}
                           {((s.status ?? "").toLowerCase() === "cancelled" ||
-                            (s.status ?? "").toLowerCase() === "completed") && (
+                            (s.status ?? "").toLowerCase() === "completed" ||
+                            (s.status ?? "").toLowerCase() === "complete") && (
                             <span className="text-xs text-gray-400">—</span>
                           )}
                         </div>

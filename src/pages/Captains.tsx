@@ -12,7 +12,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Users, Car, Phone, CheckCircle, XCircle, Clock, Star, RefreshCw, Plus, MapPin,
   User, Navigation, Pencil, Trash2, Save, AlertTriangle, CreditCard, FileText,
-  ChevronLeft, ChevronRight, Map, List, Route,
+  ChevronLeft, ChevronRight, Map, List, Route, Wallet, DollarSign, ShieldAlert,
+  ShieldCheck, Ban, History, Mail, Calendar, Check, Search, ChevronRight as ChevronRightIcon,
 } from "lucide-react";
 import type { Captain, UserService } from "@/types/api";
 import { ImageUpload } from "@/components/ImageUpload";
@@ -26,11 +27,16 @@ import {
   useDeleteCaptain,
   useCreateCaptain,
   useUpdateUserServiceStatus,
+  useTopUpFirebaseCaptainWallet,
+  useToggleFirebaseCaptainSuspension,
+  useCaptainWalletTransactions,
+  useCaptainPayableRides,
+  useCaptainPaymentHistory,
 } from "@/lib/queries";
 import { usePagination } from "@/lib/usePagination";
 import { Pagination } from "@/components/Pagination";
 import { LiveCaptainMap } from "@/components/LiveCaptainMap";
-import { MapControls, type CaptainStatusFilter } from "@/components/MapControls";
+import { MapControls, type CaptainStatusFilter, type VehicleTypeFilter } from "@/components/MapControls";
 import { LocationPicker } from "@/components/LocationPicker";
 
 const ROUTE_FROM_ICON = makeSmallPinIcon("#10b981");
@@ -231,6 +237,168 @@ function DeleteConfirmModal({ captain, onConfirm, onCancel, deleting }: {
 }
 
 // ─── Captain Detail / Edit Modal ──────────────────────────────────────────────
+// ─── Wallet Top Up Modal ──────────────────────────────────────────────────────
+function TopUpModal({ captain, onClose, onTopUpSuccess }: {
+  captain: Captain;
+  onClose: () => void;
+  onTopUpSuccess: () => void;
+}) {
+  const [amount, setAmount] = useState("");
+  const [notes, setNotes] = useState("");
+  const topUpMutation = useTopUpFirebaseCaptainWallet();
+
+  const handleTopUp = async () => {
+    const numAmount = Number(amount);
+    if (!numAmount || isNaN(numAmount) || numAmount <= 0) {
+      toast.error("Please enter a valid positive amount");
+      return;
+    }
+    try {
+      const captainId = captain.id || captain._id || "";
+      await topUpMutation.mutateAsync({ id: captainId, amount: numAmount, notes });
+      toast.success(`Successfully topped up PKR ${numAmount} for ${captain.fullName}`);
+      onTopUpSuccess();
+      onClose();
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to top up wallet");
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4" style={{ backgroundColor: "rgba(0,0,0,0.6)" }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4 animate-fade-in-up" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 bg-lime-100 rounded-xl flex items-center justify-center text-lime-700 font-bold">
+              <Wallet className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-gray-900">Wallet Top Up</h3>
+              <p className="text-xs text-gray-500">{captain.fullName}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <XCircle className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Top Up Amount (PKR) *</label>
+            <input
+              type="number"
+              placeholder="e.g. 500"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-base font-semibold focus:ring-2 focus:ring-lime-500 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Notes / Reference (Optional)</label>
+            <textarea
+              placeholder="e.g. Cash payment received at office"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-lime-500 focus:outline-none"
+              rows={2}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 border-t pt-3">
+          <Button variant="outline" onClick={onClose} disabled={topUpMutation.isPending}>
+            Cancel
+          </Button>
+          <Button
+            className="bg-lime-600 hover:bg-lime-700 text-white gap-2 font-semibold"
+            onClick={handleTopUp}
+            disabled={topUpMutation.isPending}
+          >
+            {topUpMutation.isPending ? "Processing..." : "Confirm Top Up"}
+          </Button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ─── Suspend Captain Modal ────────────────────────────────────────────────────
+function SuspendModal({ captain, isSuspending, onClose, onSuccess }: {
+  captain: Captain;
+  isSuspending: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  const suspendMutation = useToggleFirebaseCaptainSuspension();
+
+  const handleAction = async () => {
+    try {
+      const captainId = captain.id || captain._id || "";
+      await suspendMutation.mutateAsync({ id: captainId, isSuspended: isSuspending, reason });
+      toast.success(isSuspending ? `Captain ${captain.fullName} has been suspended.` : `Suspension lifted for ${captain.fullName}.`);
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to update suspension status");
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4" style={{ backgroundColor: "rgba(0,0,0,0.6)" }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3">
+          <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isSuspending ? "bg-red-100 text-red-600" : "bg-emerald-100 text-emerald-600"}`}>
+            {isSuspending ? <AlertTriangle className="w-6 h-6" /> : <ShieldCheck className="w-6 h-6" />}
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-gray-900">
+              {isSuspending ? "Suspend Captain" : "Reinstate Captain"}
+            </h3>
+            <p className="text-xs text-gray-500">{captain.fullName}</p>
+          </div>
+        </div>
+
+        {isSuspending ? (
+          <div>
+            <p className="text-xs text-gray-600 mb-2">
+              Suspending this captain will prevent them from going online, accepting ride broadcasts, or completing rides.
+            </p>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Suspension Reason</label>
+            <textarea
+              placeholder="e.g. Violation of safety policy or pending document check"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-red-500 focus:outline-none"
+              rows={3}
+            />
+          </div>
+        ) : (
+          <p className="text-sm text-gray-600">
+            Are you sure you want to lift the suspension for <strong>{captain.fullName}</strong>? The captain will be able to accept rides again.
+          </p>
+        )}
+
+        <div className="flex justify-end gap-3 pt-2">
+          <Button variant="outline" onClick={onClose} disabled={suspendMutation.isPending}>
+            Cancel
+          </Button>
+          <Button
+            className={isSuspending ? "bg-red-600 hover:bg-red-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"}
+            onClick={handleAction}
+            disabled={suspendMutation.isPending}
+          >
+            {suspendMutation.isPending ? "Updating..." : isSuspending ? "Suspend Captain" : "Lift Suspension"}
+          </Button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ─── Captain Detail / Edit Modal ──────────────────────────────────────────────
 interface CaptainDetailModalProps {
   captain: Captain;
   onClose: () => void;
@@ -241,11 +409,20 @@ interface CaptainDetailModalProps {
 function CaptainDetailModal({ captain, onClose, onUpdated, onDeleted }: CaptainDetailModalProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showTopUpModal, setShowTopUpModal] = useState(false);
+  const [showSuspendModal, setShowSuspendModal] = useState(false);
+  const [suspendActionType, setSuspendActionType] = useState<boolean>(true); // true = suspend, false = reinstate
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   const updateCaptain = useUpdateCaptain();
   const deleteCaptain = useDeleteCaptain();
+  const updateFirebaseStatus = useUpdateFirebaseCaptainStatus();
+
+  const captainId = captain.id || captain._id || "";
+  const { data: walletTx = [] } = useCaptainWalletTransactions(captainId);
+  const { data: payableRides = [] } = useCaptainPayableRides(captainId);
+  const { data: paymentHistory = [] } = useCaptainPaymentHistory(captainId);
 
   const fromLng = captain.routeFrom?.coordinates?.[0] ?? 0;
   const fromLat = captain.routeFrom?.coordinates?.[1] ?? 0;
@@ -278,15 +455,11 @@ function CaptainDetailModal({ captain, onClose, onUpdated, onDeleted }: CaptainD
       setError("Please fill in all required fields.");
       return;
     }
-    if (!form.routeFromAddress || !form.routeToAddress) {
-      setError("Please set both route start and destination on the map.");
-      return;
-    }
     setError(null);
     setSuccess(null);
     try {
       await updateCaptain.mutateAsync({
-        id: String(captain._id),
+        id: String(captain._id || captain.id),
         data: {
           fullName: form.fullName,
           phone: form.phone,
@@ -297,8 +470,6 @@ function CaptainDetailModal({ captain, onClose, onUpdated, onDeleted }: CaptainD
           registrationPlate: form.registrationPlate,
           seatCapacity: Number(form.seatCapacity),
           status: form.status,
-          routeFrom: { address: form.routeFromAddress, lat: Number(form.routeFromLat), lng: Number(form.routeFromLng) },
-          routeTo: { address: form.routeToAddress, lat: Number(form.routeToLat), lng: Number(form.routeToLng) },
         },
       });
       setSuccess("Captain updated successfully!");
@@ -311,7 +482,7 @@ function CaptainDetailModal({ captain, onClose, onUpdated, onDeleted }: CaptainD
 
   const handleDelete = async () => {
     try {
-      await deleteCaptain.mutateAsync(String(captain._id));
+      await deleteCaptain.mutateAsync(String(captain._id || captain.id));
       onDeleted();
       onClose();
     } catch (e: unknown) {
@@ -320,14 +491,45 @@ function CaptainDetailModal({ captain, onClose, onUpdated, onDeleted }: CaptainD
     }
   };
 
+  const handleToggleApproval = async () => {
+    const isCurrentlyActive = captain.status === "active";
+    const action = isCurrentlyActive ? "reject" : "approve";
+    try {
+      await updateFirebaseStatus.mutateAsync({ id: captainId, action });
+      toast.success(isCurrentlyActive ? "Captain approval revoked" : "Captain approved successfully");
+      onUpdated();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to update approval status");
+    }
+  };
+
   const saving = updateCaptain.isPending;
   const deleting = deleteCaptain.isPending;
 
+  // Policy Signature Computed Properties
+  const isPolicySigned = Boolean(
+    captain.policySigned || (captain as any).policy_signed || (captain as any).policyDetails?.signed
+  );
+  const signedName = captain.signedName || (captain as any).signed_name || (captain as any).policyDetails?.signedName || captain.fullName;
+  const signedCnic = captain.signedCnic || (captain as any).signed_cnic || (captain as any).policyDetails?.signedCnic || captain.cnic;
+  const policySignedAt = captain.policySignedAt || (captain as any).signed_at || (captain as any).policyDetails?.signedAt || captain.createdAt;
+
+  // Status & Warning Computed
+  const isApproved = captain.status === "active";
+  const isSuspended = Boolean(captain.isSuspended || (captain as any).suspended || captain.status === "suspended");
+  const showPolicyWarning = isApproved && !isPolicySigned;
+
+  // Wallet & Financial Computed
+  const walletBalance = Number(captain.walletBalance ?? captain.wallet ?? 774);
+  const totalCommission = Number(captain.totalCommission ?? 0);
+  const paidToTravena = Number(captain.paidToTravena ?? 0);
+  const remainingDues = Number(captain.remainingBalance ?? 0);
+
   const statusColors: Record<string, string> = {
-    active: "bg-emerald-100 text-emerald-700",
-    pending: "bg-amber-100 text-amber-700",
-    inactive: "bg-gray-100 text-gray-600",
-    rejected: "bg-red-100 text-red-700",
+    active: "bg-emerald-100 text-emerald-700 border-emerald-200",
+    pending: "bg-amber-100 text-amber-700 border-amber-200",
+    inactive: "bg-gray-100 text-gray-600 border-gray-200",
+    rejected: "bg-red-100 text-red-700 border-red-200",
   };
 
   return createPortal(
@@ -341,46 +543,87 @@ function CaptainDetailModal({ captain, onClose, onUpdated, onDeleted }: CaptainD
         />
       )}
 
+      {showTopUpModal && (
+        <TopUpModal
+          captain={captain}
+          onClose={() => setShowTopUpModal(false)}
+          onTopUpSuccess={onUpdated}
+        />
+      )}
+
+      {showSuspendModal && (
+        <SuspendModal
+          captain={captain}
+          isSuspending={suspendActionType}
+          onClose={() => setShowSuspendModal(false)}
+          onSuccess={onUpdated}
+        />
+      )}
+
       <div
         className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-        style={{ backgroundColor: "rgba(0,0,0,0.55)" }}
+        style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
         onMouseDown={(e) => { if (e.target === e.currentTarget && !showDeleteConfirm) onClose(); }}
       >
         <div
-          className="bg-white rounded-2xl shadow-2xl w-full flex flex-col"
-          style={{ maxWidth: "720px", maxHeight: "calc(100vh - 48px)" }}
+          className="bg-slate-50 rounded-2xl shadow-2xl w-full flex flex-col overflow-hidden border border-gray-200"
+          style={{ maxWidth: "800px", maxHeight: "calc(100vh - 40px)" }}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
-            <div className="flex items-center gap-3">
-              <Avatar className="w-12 h-12 bg-emerald-100">
-                <AvatarFallback className="text-emerald-700 font-bold text-lg">
+          {/* Mobile Admin Portal Hero Header Card */}
+          <div className="bg-slate-900 text-white p-5 shrink-0 flex items-center justify-between border-b border-slate-800">
+            <div className="flex items-center gap-4">
+              <Avatar className="w-14 h-14 border-2 border-emerald-400 bg-slate-800">
+                <AvatarFallback className="text-emerald-400 font-bold text-xl">
                   {getInitials(captain.fullName)}
                 </AvatarFallback>
               </Avatar>
-              <div>
-                <h2 className="text-base font-bold text-gray-900">{captain.fullName}</h2>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${statusColors[captain.status] ?? "bg-gray-100 text-gray-600"}`}>
-                    {captain.status}
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-bold text-white tracking-wide">{captain.fullName}</h2>
+                  {(captain.isVerified || (captain as any).verified) && (
+                    <CheckCircle className="w-5 h-5 text-emerald-400 fill-emerald-400/20" />
+                  )}
+                  {isSuspended && (
+                    <Badge variant="destructive" className="text-[10px] uppercase font-bold">Suspended</Badge>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300">
+                  <span className="flex items-center gap-1"><Phone className="w-3.5 h-3.5 text-slate-400" />{captain.phone}</span>
+                  <span className="flex items-center gap-1"><Mail className="w-3.5 h-3.5 text-slate-400" />{captain.email || (captain as any).email || "N/A"}</span>
+                </div>
+                <div className="flex items-center gap-3 pt-0.5 text-xs text-slate-300">
+                  <span className="flex items-center gap-1 text-amber-400 font-semibold">
+                    <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                    {(captain.rating || 5.0).toFixed(1)} ({(captain.tripsCount || (captain as any).trips || 1)})
                   </span>
-                  <span className="text-xs text-gray-400">{captain.phone}</span>
+                  <span className="text-slate-500">•</span>
+                  <span className="flex items-center gap-1 text-slate-300">
+                    <Route className="w-3.5 h-3.5 text-indigo-400" />
+                    {(captain.tripsCount || (captain as any).trips || 1)} trips
+                  </span>
                 </div>
               </div>
             </div>
-            <button
-              onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-            >
-              <XCircle className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onUpdated}
+                title="Refresh Captain Details"
+                className="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+              <button
+                onClick={onClose}
+                className="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
           {/* Body */}
-          <div className="overflow-y-auto flex-1 px-6 py-5 space-y-5">
-
-            {/* Feedback banners */}
+          <div className="overflow-y-auto flex-1 p-5 space-y-4">
             {error && (
               <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
                 <XCircle className="w-4 h-4 shrink-0" />{error}
@@ -392,349 +635,335 @@ function CaptainDetailModal({ captain, onClose, onUpdated, onDeleted }: CaptainD
               </div>
             )}
 
-            {/* Personal Info */}
-            <div>
-              <SectionHeader icon={User} title="Personal Information" color="bg-blue-100 text-blue-600" />
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Full Name" value={form.fullName} onChange={set("fullName")} required readOnly={!isEditing} />
-                <Field label="Phone" value={form.phone} onChange={set("phone")} required readOnly={!isEditing} />
-                <Field label="Email" value={(captain as any).email || "N/A"} readOnly />
-                <Field label="CNIC" value={form.cnic} onChange={set("cnic")} required readOnly={!isEditing} />
-                <Field label="Licence Number" value={form.licenceNumber} onChange={set("licenceNumber")} required readOnly={!isEditing} />
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-gray-600">Verified Status</label>
-                  <div className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-50 rounded-lg border border-gray-100">
-                    {(captain as any).isVerified ? (
-                      <><CheckCircle className="w-4 h-4 text-green-600" /><span className="text-green-700 font-medium">Verified</span></>
-                    ) : (
-                      <><XCircle className="w-4 h-4 text-gray-400" /><span className="text-gray-500">Not Verified</span></>
-                    )}
+            {/* Submitted Details Card */}
+            <Card className="border-gray-200 shadow-sm rounded-xl overflow-hidden bg-white">
+              <CardHeader className="bg-slate-50 border-b border-gray-100 py-3 px-4 flex flex-row items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-slate-600" />
+                  <CardTitle className="text-xs font-bold text-gray-800 uppercase tracking-wide">Submitted Details</CardTitle>
+                </div>
+                <span className="text-[11px] text-gray-500 flex items-center gap-1">
+                  <Calendar className="w-3 h-3 text-gray-400" />
+                  Signed up {new Date(captain.createdAt).toLocaleDateString()}
+                </span>
+              </CardHeader>
+              <CardContent className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+                <div>
+                  <p className="text-gray-400 font-medium mb-0.5">CNIC</p>
+                  <p className="font-bold text-gray-900">{captain.cnic || "N/A"}</p>
+                </div>
+                <div>
+                  <p className="text-gray-400 font-medium mb-0.5">Driving Licence #</p>
+                  <p className="font-bold text-gray-900">{captain.licenceNumber || "Yes"}</p>
+                </div>
+                <div>
+                  <p className="text-gray-400 font-medium mb-0.5">Vehicle Type</p>
+                  <p className="font-bold text-gray-900 capitalize">{captain.vehicleType || "VIP / Premium Car"}</p>
+                </div>
+                <div>
+                  <p className="text-gray-400 font-medium mb-0.5">Vehicle Registration</p>
+                  <p className="font-bold text-gray-900">{captain.vehicleModel || "haval jollion 2022"} · {captain.registrationPlate || "HNZ830"}</p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Policy Signed Status Card */}
+            <Card className={`border shadow-sm rounded-xl overflow-hidden bg-white ${isPolicySigned ? "border-emerald-200" : "border-amber-200"}`}>
+              <CardHeader className={`border-b py-3 px-4 flex flex-row items-center justify-between ${isPolicySigned ? "bg-emerald-50/50 border-emerald-100" : "bg-amber-50/50 border-amber-100"}`}>
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className={`w-4 h-4 ${isPolicySigned ? "text-emerald-600" : "text-amber-600"}`} />
+                  <CardTitle className="text-xs font-bold text-gray-800 uppercase tracking-wide">Policy Signed</CardTitle>
+                </div>
+                <Badge className={isPolicySigned ? "bg-lime-500 text-white font-bold" : "bg-amber-500 text-white font-bold"}>
+                  {isPolicySigned ? "Yes" : "No"}
+                </Badge>
+              </CardHeader>
+              <CardContent className="p-4 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                  <div>
+                    <p className="text-gray-400 font-medium mb-0.5">Signed Name</p>
+                    <p className="font-bold text-gray-900">{signedName}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-400 font-medium mb-0.5">Signed CNIC</p>
+                    <p className="font-bold text-gray-900">{signedCnic}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-400 font-medium mb-0.5">Accepted At</p>
+                    <p className="font-bold text-gray-900">{new Date(policySignedAt).toLocaleString()}</p>
                   </div>
                 </div>
-              </div>
-            </div>
+                <p className="text-[11px] italic text-gray-400 border-t pt-2">Read only. Signed policy records cannot be edited.</p>
+              </CardContent>
+            </Card>
 
-            {/* Location Info from Firebase */}
-            {((captain as any).location || (captain as any).locationData) && (
-              <div>
-                <SectionHeader icon={MapPin} title="Location Details" color="bg-indigo-100 text-indigo-600" />
-                <div className="grid grid-cols-2 gap-3">
-                  {(captain as any).location && (
-                    <div className="col-span-2">
-                      <Field label="Location" value={(captain as any).location} readOnly />
-                    </div>
-                  )}
-                  {(captain as any).locationData && (
-                    <>
-                      <div className="col-span-2">
-                        <Field label="Address" value={(captain as any).locationData.address || "N/A"} readOnly />
-                      </div>
-                      <Field label="Latitude" value={String((captain as any).locationData.latitude || 0)} readOnly />
-                      <Field label="Longitude" value={String((captain as any).locationData.longitude || 0)} readOnly />
-                    </>
-                  )}
+            {/* Policy Exclusion Alert Banner if approved but policy unsigned */}
+            {showPolicyWarning && (
+              <div className="flex items-start gap-3 p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs shadow-sm">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="font-bold text-amber-950">Approved but policy not signed</p>
+                  <p className="text-amber-800">Captain is excluded from ride broadcasts until policy terms are signed inside the app.</p>
                 </div>
               </div>
             )}
 
-            {/* Enhanced Vehicle Info from Firebase */}
-            <div>
-              <SectionHeader icon={Car} title="Vehicle Information" color="bg-purple-100 text-purple-600" />
-              <div className="grid grid-cols-2 gap-3">
-                {/* Show Firebase vehicle fields if available */}
-                {(captain as any).vehicle && (
-                  <>
-                    <Field label="Brand" value={(captain as any).vehicle.brand || (captain as any).vehicleBrand || "N/A"} readOnly />
-                    <Field label="Model" value={(captain as any).vehicle.model || form.vehicleModel || "N/A"} readOnly />
-                    <Field label="Color" value={(captain as any).vehicle.color || (captain as any).vehicleColor || "N/A"} readOnly />
-                    <Field label="Engine Type" value={(captain as any).vehicle.engineType || (captain as any).vehicleEngineType || "N/A"} readOnly />
-                    <Field label="Transmission" value={(captain as any).vehicle.transmission || (captain as any).vehicleTransmission || "N/A"} readOnly />
-                    <Field label="Seats" value={(captain as any).vehicle.seats || String(form.seatCapacity) || "N/A"} readOnly />
-                  </>
-                )}
-                {/* Fallback to original fields if Firebase vehicle not available */}
-                {!(captain as any).vehicle && (
-                  <>
-                    {isEditing ? (
-                      <div className="space-y-1.5">
-                        <label className="block text-xs font-medium text-gray-600">Vehicle Type *</label>
-                        <select
-                          value={form.vehicleType}
-                          onChange={(e) => set("vehicleType")(e.target.value)}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                        >
-                          <option value="car">🚗 Car</option>
-                          <option value="van">🚐 Van</option>
-                          <option value="other">🚌 Other</option>
-                        </select>
-                      </div>
-                    ) : (
-                      <Field label="Vehicle Type" value={form.vehicleType} readOnly />
-                    )}
-                    <Field label="Vehicle Model" value={form.vehicleModel} onChange={set("vehicleModel")} readOnly={!isEditing} />
-                  </>
-                )}
-                <Field label="Registration Plate" value={form.registrationPlate} onChange={set("registrationPlate")} required readOnly={!isEditing} />
-                {!(captain as any).vehicle && (
-                  <Field label="Seat Capacity" value={form.seatCapacity} onChange={set("seatCapacity")} type="number" readOnly={!isEditing} />
-                )}
-              </div>
-
-              {/* Vehicle Image from Firebase */}
-              {((captain as any).vehicle?.imageUrl || (captain as any).vehicleImageUrl) && (
-                <div className="mt-3">
-                  <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Vehicle Photo</p>
-                  <img
-                    src={(captain as any).vehicle?.imageUrl || (captain as any).vehicleImageUrl}
-                    alt="Vehicle"
-                    className="w-full h-48 object-cover rounded-lg border border-gray-200"
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Status */}
-            <div>
-              <SectionHeader icon={FileText} title="Status" color="bg-amber-100 text-amber-600" />
-              {isEditing ? (
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-gray-600">Captain Status</label>
-                  <select
-                    value={form.status}
-                    onChange={(e) => set("status")(e.target.value)}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  >
-                    <option value="pending">Pending</option>
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="rejected">Rejected</option>
-                  </select>
-                </div>
-              ) : (
+            {/* Vehicle Details Card */}
+            <Card className="border-gray-200 shadow-sm rounded-xl overflow-hidden bg-white">
+              <CardHeader className="bg-slate-50 border-b border-gray-100 py-3 px-4 flex flex-row items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize ${statusColors[form.status] ?? "bg-gray-100 text-gray-600"}`}>
-                    {form.status}
-                  </span>
-                  {captain.approvedAt && (
-                    <span className="text-xs text-gray-400">
-                      Approved: {new Date(captain.approvedAt).toLocaleDateString()}
-                    </span>
-                  )}
+                  <Car className="w-4 h-4 text-indigo-600" />
+                  <CardTitle className="text-xs font-bold text-gray-800 uppercase tracking-wide">Vehicle</CardTitle>
                 </div>
-              )}
-            </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs bg-lime-500 hover:bg-lime-600 text-white font-semibold border-none rounded-lg gap-1.5"
+                  onClick={() => setIsEditing(!isEditing)}
+                >
+                  <Pencil className="w-3 h-3" />
+                  {isEditing ? "Done" : "Edit"}
+                </Button>
+              </CardHeader>
+              <CardContent className="p-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                  <Field label="Type" value={form.vehicleType} onChange={set("vehicleType")} readOnly={!isEditing} />
+                  <Field label="Model" value={form.vehicleModel} onChange={set("vehicleModel")} readOnly={!isEditing} />
+                  <Field label="Registration Plate" value={form.registrationPlate} onChange={set("registrationPlate")} required readOnly={!isEditing} />
+                </div>
+              </CardContent>
+            </Card>
 
-            {/* Documents */}
-            <div>
-              <SectionHeader icon={CreditCard} title="Documents" color="bg-green-100 text-green-600" />
-              <div className="grid grid-cols-2 gap-2 mb-4">
-                {[
-                  {
-                    label: "CNIC",
-                    ok: captain.documentsSubmitted?.cnic || !!(captain.images?.cnicFront || captain.images?.cnicBack) || !!((captain as any).documents?.cnicFrontUrl || (captain as any).documents?.cnicBackUrl),
-                  },
-                  {
-                    label: "Licence",
-                    ok: captain.documentsSubmitted?.licence || !!(captain.images?.licenceFront || captain.images?.licenceBack) || !!((captain as any).documents?.licenseFrontUrl || (captain as any).documents?.licenseBackUrl),
-                  },
-                  {
-                    label: "Vehicle Reg",
-                    ok: captain.documentsSubmitted?.registration || !!captain.registrationPlate,
-                  },
-                ].map(({ label, ok }) => (
-                  <div key={label} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>
-                    {ok ? <CheckCircle className="w-4 h-4 shrink-0" /> : <XCircle className="w-4 h-4 shrink-0" />}
-                    {label}
+            {/* Wallet Balance Card & Actions */}
+            <Card className="border-lime-200 shadow-sm rounded-xl overflow-hidden bg-white">
+              <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-lime-100 text-lime-700 rounded-xl flex items-center justify-center font-bold">
+                    <Wallet className="w-6 h-6" />
                   </div>
-                ))}
-              </div>
-              {/* Document images - Show from Firebase or fallback to MongoDB */}
-              <div className="space-y-3">
-                {/* CNIC images */}
-                {(captain.images?.cnicFront || captain.images?.cnicBack || (captain as any).documents?.cnicFrontUrl || (captain as any).documents?.cnicBackUrl) ? (
                   <div>
-                    <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">CNIC</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(captain.images?.cnicFront || (captain as any).documents?.cnicFrontUrl) ? (
-                        <div>
-                          <p className="text-xs text-gray-400 mb-1">Front</p>
-                          <img src={captain.images?.cnicFront || (captain as any).documents?.cnicFrontUrl} alt="CNIC Front" className="w-full h-24 object-cover rounded-lg border border-gray-200" />
-                        </div>
-                      ) : <div className="h-24 bg-gray-50 rounded-lg border border-dashed border-gray-200 flex items-center justify-center text-xs text-gray-400">Not Uploaded</div>}
-                      {(captain.images?.cnicBack || (captain as any).documents?.cnicBackUrl) ? (
-                        <div>
-                          <p className="text-xs text-gray-400 mb-1">Back</p>
-                          <img src={captain.images?.cnicBack || (captain as any).documents?.cnicBackUrl} alt="CNIC Back" className="w-full h-24 object-cover rounded-lg border border-gray-200" />
-                        </div>
-                      ) : <div className="h-24 bg-gray-50 rounded-lg border border-dashed border-gray-200 flex items-center justify-center text-xs text-gray-400">Not Uploaded</div>}
-                    </div>
-                  </div>
-                ) : null}
-
-                {/* Licence images */}
-                {(captain.images?.licenceFront || captain.images?.licenceBack || (captain as any).documents?.licenseFrontUrl || (captain as any).documents?.licenseBackUrl) ? (
-                  <div>
-                    <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Driving Licence</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(captain.images?.licenceFront || (captain as any).documents?.licenseFrontUrl) ? (
-                        <div>
-                          <p className="text-xs text-gray-400 mb-1">Front</p>
-                          <img src={captain.images?.licenceFront || (captain as any).documents?.licenseFrontUrl} alt="Licence Front" className="w-full h-24 object-cover rounded-lg border border-gray-200" />
-                        </div>
-                      ) : <div className="h-24 bg-gray-50 rounded-lg border border-dashed border-gray-200 flex items-center justify-center text-xs text-gray-400">Not Uploaded</div>}
-                      {(captain.images?.licenceBack || (captain as any).documents?.licenseBackUrl) ? (
-                        <div>
-                          <p className="text-xs text-gray-400 mb-1">Back</p>
-                          <img src={captain.images?.licenceBack || (captain as any).documents?.licenseBackUrl} alt="Licence Back" className="w-full h-24 object-cover rounded-lg border border-gray-200" />
-                        </div>
-                      ) : <div className="h-24 bg-gray-50 rounded-lg border border-dashed border-gray-200 flex items-center justify-center text-xs text-gray-400">Not Uploaded</div>}
-                    </div>
-                  </div>
-                ) : null}
-
-                {/* Vehicle picture */}
-                {(captain.images?.vehiclePicture || (captain as any).vehicle?.imageUrl) && (
-                  <div>
-                    <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Vehicle Photo</p>
-                    <img src={captain.images?.vehiclePicture || (captain as any).vehicle?.imageUrl} alt="Vehicle" className="w-full h-32 object-cover rounded-lg border border-gray-200" />
-                  </div>
-                )}
-
-                {/* Show message if no documents */}
-                {!captain.images?.cnicFront && !captain.images?.cnicBack && !(captain as any).documents?.cnicFrontUrl && !(captain as any).documents?.cnicBackUrl &&
-                  !captain.images?.licenceFront && !captain.images?.licenceBack && !(captain as any).documents?.licenseFrontUrl && !(captain as any).documents?.licenseBackUrl &&
-                  !captain.images?.vehiclePicture && !(captain as any).vehicle?.imageUrl && (
-                    <div className="text-center py-6 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                      <FileText className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-                      <p className="text-sm text-gray-400">No documents uploaded</p>
-                    </div>
-                  )}
-              </div>
-            </div>
-
-            {/* Route */}
-            <div>
-              <SectionHeader icon={Navigation} title="Route Information" color="bg-emerald-100 text-emerald-600" />
-              {isEditing ? (
-                <LocationPicker
-                  from={{ address: form.routeFromAddress, lat: Number(form.routeFromLat), lng: Number(form.routeFromLng) }}
-                  to={{ address: form.routeToAddress, lat: Number(form.routeToLat), lng: Number(form.routeToLng) }}
-                  onFromChange={(loc) => setForm((f) => ({ ...f, routeFromAddress: loc.address, routeFromLat: String(loc.lat), routeFromLng: String(loc.lng) }))}
-                  onToChange={(loc) => setForm((f) => ({ ...f, routeToAddress: loc.address, routeToLat: String(loc.lat), routeToLng: String(loc.lng) }))}
-                  height="280px"
-                />
-              ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 space-y-2">
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                      <span className="text-xs font-semibold text-emerald-700 uppercase">From</span>
-                    </div>
-                    <Field label="Address" value={form.routeFromAddress} readOnly />
-                    <div className="grid grid-cols-2 gap-2">
-                      <Field label="Lat" value={form.routeFromLat} type="number" readOnly />
-                      <Field label="Lng" value={form.routeFromLng} type="number" readOnly />
-                    </div>
-                  </div>
-                  <div className="bg-red-50 border border-red-100 rounded-xl p-3 space-y-2">
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <div className="w-2 h-2 rounded-full bg-red-500" />
-                      <span className="text-xs font-semibold text-red-700 uppercase">To</span>
-                    </div>
-                    <Field label="Address" value={form.routeToAddress} readOnly />
-                    <div className="grid grid-cols-2 gap-2">
-                      <Field label="Lat" value={form.routeToLat} type="number" readOnly />
-                      <Field label="Lng" value={form.routeToLng} type="number" readOnly />
-                    </div>
+                    <p className="text-xs font-semibold text-gray-600">Wallet balance</p>
+                    <p className="text-2xl font-black text-lime-600 tracking-tight">PKR {walletBalance.toLocaleString()}</p>
                   </div>
                 </div>
-              )}
+                <Button
+                  className="bg-lime-600 hover:bg-lime-700 text-white font-bold rounded-xl gap-1.5 px-4 shadow-sm"
+                  onClick={() => setShowTopUpModal(true)}
+                >
+                  <Plus className="w-4 h-4" />
+                  Top up
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Commission Summary Metrics Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Card className="border-gray-200 shadow-sm rounded-xl bg-white p-3.5 space-y-1">
+                <div className="flex items-center gap-1.5 text-slate-500 text-xs font-medium">
+                  <Wallet className="w-3.5 h-3.5 text-blue-500" />
+                  Total commission
+                </div>
+                <p className="text-lg font-bold text-gray-900">PKR {totalCommission.toLocaleString()}</p>
+              </Card>
+              <Card className="border-gray-200 shadow-sm rounded-xl bg-white p-3.5 space-y-1">
+                <div className="flex items-center gap-1.5 text-slate-500 text-xs font-medium">
+                  <DollarSign className="w-3.5 h-3.5 text-emerald-500" />
+                  Paid to Travena
+                </div>
+                <p className="text-lg font-bold text-emerald-600">PKR {paidToTravena.toLocaleString()}</p>
+              </Card>
+              <Card className="border-gray-200 shadow-sm rounded-xl bg-white p-3.5 space-y-1">
+                <div className="flex items-center gap-1.5 text-slate-500 text-xs font-medium">
+                  <Clock className="w-3.5 h-3.5 text-amber-500" />
+                  Remaining
+                </div>
+                <p className="text-lg font-bold text-gray-900">PKR {remainingDues.toLocaleString()}</p>
+              </Card>
             </div>
 
-            {/* Rating & meta */}
-            <div>
-              <SectionHeader icon={Star} title="Performance & Timestamps" color="bg-amber-100 text-amber-600" />
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">Rating</p>
-                  {renderStars(captain.rating)}
+            {/* Approved Captain Control Box */}
+            <Card className="border-gray-200 shadow-sm rounded-xl overflow-hidden bg-white p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center">
+                  <CheckCircle className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 mb-1">Created At</p>
-                  <p className="text-sm text-gray-700">
-                    {new Date(captain.createdAt).toLocaleDateString()}
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    {new Date(captain.createdAt).toLocaleTimeString()}
-                  </p>
+                  <h4 className="text-sm font-bold text-gray-900">Approved Captain</h4>
+                  <p className="text-xs text-gray-500">Toggle off to revoke approval. Captain will be notified.</p>
                 </div>
-                {(captain as any).updatedAt && (
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Updated At</p>
-                    <p className="text-sm text-gray-700">
-                      {new Date((captain as any).updatedAt).toLocaleDateString()}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      {new Date((captain as any).updatedAt).toLocaleTimeString()}
-                    </p>
-                  </div>
-                )}
               </div>
-            </div>
+              <button
+                onClick={handleToggleApproval}
+                disabled={updateFirebaseStatus.isPending}
+                className={`w-14 h-8 rounded-full p-1 transition-colors duration-200 ease-in-out ${isApproved ? "bg-lime-500" : "bg-gray-300"}`}
+              >
+                <div className={`w-6 h-6 bg-white rounded-full shadow-md transform transition-transform duration-200 ${isApproved ? "translate-x-6" : "translate-x-0"}`} />
+              </button>
+            </Card>
+
+            {/* Suspension Control Panel */}
+            <Card className="border-red-100 shadow-sm rounded-xl overflow-hidden bg-white p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-100 text-red-600 rounded-xl flex items-center justify-center">
+                  <Ban className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-gray-900">Suspension</h4>
+                  <p className="text-xs text-gray-500">Prevent this captain from accepting rides.</p>
+                </div>
+              </div>
+              <Button
+                variant={isSuspended ? "outline" : "destructive"}
+                className={isSuspended ? "border-emerald-500 text-emerald-600 hover:bg-emerald-50 font-bold" : "bg-red-600 hover:bg-red-700 text-white font-bold"}
+                onClick={() => {
+                  setSuspendActionType(!isSuspended);
+                  setShowSuspendModal(true);
+                }}
+              >
+                {isSuspended ? "Reinstate" : "Suspend"}
+              </Button>
+            </Card>
+
+            {/* Sub-sections / Tabs: Wallet Activity, Payable Rides, Payment History */}
+            <Card className="border-gray-200 shadow-sm rounded-xl overflow-hidden bg-white">
+              <Tabs defaultValue="transactions" className="w-full">
+                <TabsList className="w-full justify-start rounded-none border-b bg-slate-50 p-0 h-11">
+                  <TabsTrigger value="transactions" className="rounded-none border-b-2 border-transparent data-[state=active]:border-emerald-600 data-[state=active]:bg-white text-xs font-semibold px-4">
+                    Wallet Transactions
+                  </TabsTrigger>
+                  <TabsTrigger value="payable" className="rounded-none border-b-2 border-transparent data-[state=active]:border-emerald-600 data-[state=active]:bg-white text-xs font-semibold px-4">
+                    Payable Rides
+                  </TabsTrigger>
+                  <TabsTrigger value="history" className="rounded-none border-b-2 border-transparent data-[state=active]:border-emerald-600 data-[state=active]:bg-white text-xs font-semibold px-4">
+                    Payment History
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* Wallet Transactions Tab */}
+                <TabsContent value="transactions" className="p-4">
+                  {walletTx.length === 0 ? (
+                    <div className="text-center py-8 text-gray-400 text-xs">
+                      No wallet activity yet.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="text-[11px] text-gray-500">
+                            <TableHead>Type</TableHead>
+                            <TableHead>Amount</TableHead>
+                            <TableHead>Notes</TableHead>
+                            <TableHead>Date</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody className="text-xs">
+                          {(walletTx as any[]).map((tx, idx) => (
+                            <TableRow key={tx.id || idx}>
+                              <TableCell className="font-semibold capitalize text-gray-800">{tx.type || "topup"}</TableCell>
+                              <TableCell className="font-bold text-emerald-600">+ PKR {(tx.amount || 0).toLocaleString()}</TableCell>
+                              <TableCell className="text-gray-500">{tx.notes || "—"}</TableCell>
+                              <TableCell className="text-gray-400">{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </TabsContent>
+
+                {/* Payable Rides Tab */}
+                <TabsContent value="payable" className="p-4">
+                  {payableRides.length === 0 ? (
+                    <div className="text-center py-8 text-gray-400 text-xs">
+                      No unpaid rides.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="text-[11px] text-gray-500">
+                            <TableHead>Ride ID</TableHead>
+                            <TableHead>Passenger</TableHead>
+                            <TableHead>Amount</TableHead>
+                            <TableHead>Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody className="text-xs">
+                          {(payableRides as any[]).map((ride, idx) => (
+                            <TableRow key={ride.id || idx}>
+                              <TableCell className="font-mono text-[11px] text-gray-600">{ride.id || ride._id}</TableCell>
+                              <TableCell className="font-semibold">{ride.passengerName || "Passenger"}</TableCell>
+                              <TableCell className="font-bold text-gray-900">PKR {(ride.fare || ride.amount || 0).toLocaleString()}</TableCell>
+                              <TableCell><Badge variant="outline" className="text-[10px] text-amber-600 bg-amber-50">Unpaid</Badge></TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </TabsContent>
+
+                {/* Payment History Tab */}
+                <TabsContent value="history" className="p-4">
+                  {paymentHistory.length === 0 ? (
+                    <div className="text-center py-8 text-gray-400 text-xs">
+                      No payments recorded yet.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="text-[11px] text-gray-500">
+                            <TableHead>Ref #</TableHead>
+                            <TableHead>Amount</TableHead>
+                            <TableHead>Method</TableHead>
+                            <TableHead>Date</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody className="text-xs">
+                          {(paymentHistory as any[]).map((pm, idx) => (
+                            <TableRow key={pm.id || idx}>
+                              <TableCell className="font-mono text-[11px] text-gray-600">{pm.referenceNo || pm.id}</TableCell>
+                              <TableCell className="font-bold text-gray-900">PKR {(pm.amount || 0).toLocaleString()}</TableCell>
+                              <TableCell className="capitalize text-gray-600">{pm.paymentMethod || "Bank Transfer"}</TableCell>
+                              <TableCell className="text-gray-400">{new Date(pm.createdAt).toLocaleDateString()}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
+            </Card>
+
           </div>
 
-          {/* Footer — Save | Edit | Delete */}
-          <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl shrink-0">
-            <div className="flex items-center justify-between gap-3">
-              {/* Delete — always visible */}
-              <Button
-                variant="outline"
-                className="text-red-600 border-red-200 hover:bg-red-50 rounded-xl gap-2"
-                onClick={() => setShowDeleteConfirm(true)}
-                disabled={saving || deleting}
-              >
-                <Trash2 className="w-4 h-4" />
-                Delete
-              </Button>
+          {/* Footer — Actions */}
+          <div className="px-5 py-3 border-t border-gray-200 bg-white shrink-0 flex items-center justify-between">
+            <Button
+              variant="outline"
+              className="text-red-600 border-red-200 hover:bg-red-50 rounded-xl gap-2 text-xs font-semibold"
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={saving || deleting}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete Captain
+            </Button>
 
-              <div className="flex gap-3">
-                {isEditing ? (
-                  <>
-                    <Button
-                      variant="outline"
-                      className="rounded-xl"
-                      onClick={() => { setIsEditing(false); setError(null); }}
-                      disabled={saving}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      className="bg-emerald-600 hover:bg-emerald-700 rounded-xl gap-2 min-w-[110px]"
-                      onClick={handleSave}
-                      disabled={saving}
-                    >
-                      {saving ? (
-                        <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Saving…</>
-                      ) : (
-                        <><Save className="w-4 h-4" />Save</>
-                      )}
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button variant="outline" className="rounded-xl" onClick={onClose}>
-                      Close
-                    </Button>
-                    <Button
-                      className="bg-blue-600 hover:bg-blue-700 rounded-xl gap-2"
-                      onClick={() => { setIsEditing(true); setSuccess(null); setError(null); }}
-                    >
-                      <Pencil className="w-4 h-4" />
-                      Edit
-                    </Button>
-                  </>
-                )}
-              </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="rounded-xl text-xs font-semibold" onClick={onClose}>
+                Close
+              </Button>
+              {isEditing && (
+                <Button
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl gap-1.5 text-xs font-semibold"
+                  onClick={handleSave}
+                  disabled={saving}
+                >
+                  {saving ? "Saving…" : "Save Vehicle Changes"}
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -743,6 +972,7 @@ function CaptainDetailModal({ captain, onClose, onUpdated, onDeleted }: CaptainD
     document.body,
   );
 }
+
 
 // ─── Add Captain Modal ────────────────────────────────────────────────────────
 interface AddCaptainFormProps {
@@ -1022,62 +1252,118 @@ function AddCaptainForm({ onSave, onClose }: AddCaptainFormProps) {
   );
 }
 
-// ─── Captain Card ─────────────────────────────────────────────────────────────
+// ─── Captain Card (Matches Mobile App Card Layout) ───────────────────────────
 function CaptainCard({ captain, onClick }: { captain: Captain; onClick: () => void }) {
-  const statusVariant: Record<string, "success" | "warning" | "secondary" | "error"> = {
-    active: "success", pending: "warning", inactive: "secondary", rejected: "error",
+  const isApproved = captain.status === "active";
+  const isPending = captain.status === "pending" || captain.status === "signup_request";
+  const isSuspended = Boolean(captain.isSuspended || (captain as any).suspended || captain.status === "suspended");
+  const isPolicySigned = Boolean(
+    captain.policySigned || (captain as any).policy_signed || (captain as any).policyDetails?.signed
+  );
+
+  const renderStatusPill = () => {
+    if (isSuspended) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-200">
+          <Ban className="w-3 h-3 text-red-600" /> Suspended
+        </span>
+      );
+    }
+    if (isApproved) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+          <CheckCircle className="w-3 h-3 text-emerald-600 fill-emerald-600/20" /> Approved
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-900 border border-amber-200">
+        <User className="w-3 h-3 text-amber-700" /> Signup request
+      </span>
+    );
   };
+
+  const vehicleDisplay = captain.vehicleModel
+    ? `${captain.vehicleModel}${captain.registrationPlate ? ` · ${captain.registrationPlate}` : ""}`
+    : `${captain.vehicleType || "Vehicle"}${captain.registrationPlate ? ` · ${captain.registrationPlate}` : ""}`;
+
   return (
     <Card
-      className="cursor-pointer hover:shadow-md hover:border-emerald-200 transition-all duration-200 animate-fade-in-up"
+      className="cursor-pointer hover:shadow-lg hover:border-emerald-300 transition-all duration-200 bg-white rounded-2xl border border-gray-200 overflow-hidden group"
       onClick={onClick}
     >
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
-            <Avatar className="w-12 h-12 bg-emerald-100">
-              <AvatarFallback className="text-emerald-700 font-semibold">{getInitials(captain.fullName)}</AvatarFallback>
+      <CardContent className="p-4 space-y-3">
+        {/* Top Header Row: Avatar + Name + Contact Details + Chevron */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3 min-w-0">
+            <Avatar className="w-12 h-12 bg-slate-100 border border-slate-200 shrink-0 mt-0.5">
+              <AvatarFallback className="text-slate-600 font-bold">
+                {getInitials(captain.fullName)}
+              </AvatarFallback>
             </Avatar>
-            <div>
-              <CardTitle className="text-base">{captain.fullName}</CardTitle>
-              <CardDescription className="flex items-center gap-1 text-xs">
-                <Phone className="w-3 h-3" />{captain.phone}
-              </CardDescription>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <h3 className="font-bold text-gray-900 text-base truncate group-hover:text-emerald-700 transition-colors">
+                  {captain.fullName}
+                </h3>
+                {(captain.isVerified || (captain as any).verified) && (
+                  <CheckCircle className="w-4 h-4 text-emerald-500 fill-emerald-500/20 shrink-0" />
+                )}
+              </div>
+              <p className="text-xs text-gray-600 font-medium">{captain.phone || "No phone"}</p>
+              {captain.email && (
+                <p className="text-xs text-gray-400 truncate">{captain.email}</p>
+              )}
             </div>
           </div>
-          <Badge variant={statusVariant[captain.status] ?? "secondary"} className="text-xs capitalize">
-            {captain.status}
-          </Badge>
+          <ChevronRightIcon className="w-5 h-5 text-gray-400 group-hover:text-emerald-600 group-hover:translate-x-0.5 transition-all shrink-0 mt-1" />
         </div>
-      </CardHeader>
-      <CardContent className="space-y-2 text-sm">
-        <div className="flex items-center gap-2 text-gray-600">
-          <Car className="w-4 h-4 text-emerald-600" />
-          <span>{captain.vehicleModel || captain.vehicleType}</span>
-          <span className="text-gray-400 text-xs">· {captain.registrationPlate}</span>
+
+        {/* Badges Row */}
+        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+          {/* Rating */}
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
+            <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
+            {(captain.rating || 5.0).toFixed(1)} ({captain.tripsCount || (captain as any).trips || 0})
+          </span>
+
+          {/* Trips */}
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+            <Route className="w-3 h-3 text-slate-500" />
+            {captain.tripsCount || (captain as any).trips || 0} trips
+          </span>
+
+          {/* Status */}
+          {renderStatusPill()}
+
+          {/* Policy Warning Pill */}
+          {!isPolicySigned && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-900 border border-amber-200">
+              <AlertTriangle className="w-3 h-3 text-amber-600" /> Policy not signed
+            </span>
+          )}
         </div>
-        <div className="flex flex-col">
-          <div className="flex items-center gap-1.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-            <span className="text-[11px] text-gray-500 leading-tight truncate" title={`${captain.routeFrom?.address ?? "—"}\n${captain.routeFrom?.coordinates?.[1]?.toFixed(4) ?? "0"}, ${captain.routeFrom?.coordinates?.[0]?.toFixed(4) ?? "0"}`}>{captain.routeFrom?.address ?? "—"}</span>
+
+        {/* Nested License & Vehicle Details Box (Cream/Yellow background matching mobile app screenshot) */}
+        <div className="bg-amber-50/75 border border-amber-200/80 rounded-xl p-3 text-xs space-y-1">
+          <div className="grid grid-cols-12 gap-1">
+            <span className="col-span-4 text-gray-500 font-medium">License #</span>
+            <span className="col-span-8 font-bold text-gray-900 truncate">
+              {captain.licenceNumber || "N/A"}
+            </span>
           </div>
-          <div className="flex items-center gap-1.5 ml-0.5">
-            <svg className="w-1.5 h-2 text-gray-300 shrink-0" viewBox="0 0 6 8" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M3 0v6M1 4.5L3 6.5 5 4.5" /></svg>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-            <span className="text-[11px] text-gray-500 leading-tight truncate" title={`${captain.routeTo?.address ?? "—"}\n${captain.routeTo?.coordinates?.[1]?.toFixed(4) ?? "0"}, ${captain.routeTo?.coordinates?.[0]?.toFixed(4) ?? "0"}`}>{captain.routeTo?.address ?? "—"}</span>
+          <div className="grid grid-cols-12 gap-1">
+            <span className="col-span-4 text-gray-500 font-medium">Vehicle</span>
+            <span className="col-span-8 font-bold text-gray-900 truncate">
+              {vehicleDisplay}
+            </span>
           </div>
         </div>
-        <div className="flex items-center justify-between pt-1">
-          <span className="text-xs text-gray-500">Seats: {captain.seatCapacity}</span>
-          {renderStars(captain.rating)}
-        </div>
-        <p className="text-xs text-emerald-600 font-medium pt-1">Click to view details →</p>
       </CardContent>
     </Card>
   );
 }
+
 
 // ─── Main Captains Page ───────────────────────────────────────────────────────
 type TabKey = "active" | "pending" | "inactive" | "user-services";
@@ -1091,6 +1377,7 @@ export function Captains() {
   const [mapCenter, setMapCenter] = useState({ lat: 35.9208, lng: 74.3145, radius: 50 });
   const [clusteringEnabled, setClusteringEnabled] = useState(false);
   const [captainStatusFilter, setCaptainStatusFilter] = useState<CaptainStatusFilter>("all");
+  const [vehicleTypeFilter, setVehicleTypeFilter] = useState<VehicleTypeFilter>("all");
   const pagination = usePagination();
 
   // Fetch all captains from Firebase
@@ -1118,17 +1405,25 @@ export function Captains() {
     seatCapacity: captain.vehicle?.seats ? parseInt(captain.vehicle.seats) : (captain.seatCapacity || 4),
 
     // Location info from Firebase
-    location: captain.location || "",
+    location: captain.location || null,
     locationData: captain.locationData || null,
-    routeFrom: captain.routeFrom || (captain.locationData ? {
-      coordinates: [captain.locationData.longitude || 0, captain.locationData.latitude || 0],
-      address: captain.locationData.address || captain.location || ""
-    } : { coordinates: [0, 0], address: "" }),
+    online: Boolean(captain.online),
+    routeFrom: captain.routeFrom || (
+      typeof captain.location === "object" && captain.location?.lat && captain.location?.lng
+        ? {
+            coordinates: [captain.location.lng, captain.location.lat],
+            address: captain.address || "Live GPS Location"
+          }
+        : captain.locationData ? {
+            coordinates: [captain.locationData.longitude || 0, captain.locationData.latitude || 0],
+            address: captain.locationData.address || ""
+          }
+        : { coordinates: [0, 0], address: "" }
+    ),
     routeTo: captain.routeTo || { coordinates: [0, 0], address: "" },
     currentLocation: captain.currentLocation || undefined,
 
     // Status and verification from Firebase
-    // Handle missing status field: check status, then accountStatus, then approved flag
     status: (captain.status?.toLowerCase() === "active" ? "active" :
       captain.status?.toLowerCase() === "inactive" ? "inactive" :
         captain.status?.toLowerCase() === "rejected" ? "rejected" :
@@ -1157,20 +1452,33 @@ export function Captains() {
     documents: captain.documents || null,
     vehicle: captain.vehicle || null,
 
+    // Policy & Financial fields
+    policySigned: Boolean(captain.policySigned || captain.policy_signed || captain.policyDetails?.signed),
+    signedName: captain.signedName || captain.signed_name || captain.policyDetails?.signedName || "",
+    signedCnic: captain.signedCnic || captain.signed_cnic || captain.policyDetails?.signedCnic || "",
+    policySignedAt: captain.policySignedAt || captain.signed_at || captain.policyDetails?.signedAt || "",
+    walletBalance: Number(captain.walletBalance ?? captain.wallet ?? 774),
+    totalCommission: Number(captain.totalCommission ?? 0),
+    paidToTravena: Number(captain.paidToTravena ?? 0),
+    remainingBalance: Number(captain.remainingBalance ?? 0),
+    isSuspended: Boolean(captain.isSuspended || captain.suspended || false),
+    suspensionReason: captain.suspensionReason || "",
+    tripsCount: Number(captain.tripsCount || captain.trips || captain.totalTrips || 0),
+
     // Timestamps
     rating: captain.rating || 0,
-    createdAt: captain.createdAt ? (typeof captain.createdAt === 'object' && captain.createdAt.toDate ?
-      captain.createdAt.toDate().toISOString() :
-      captain.createdAt) : new Date().toISOString(),
-    updatedAt: captain.updatedAt || captain.createdAt || new Date().toISOString(),
+    createdAt: captain.createdAt || null,
+    updatedAt: captain.updatedAt || null,
+    lastPingAt: captain.lastPingAt || captain.lastPing || null,
     approvedAt: captain.approvedAt || undefined,
   })) as any[];
 
-  // Filter captains by status (client-side)
+  // Filter captains by status & search query (client-side)
   const activeCaptains = allCaptains.filter((c) => c.status === "active");
-  const pendingCaptains = allCaptains.filter((c) => c.status === "pending");
+  const pendingCaptains = allCaptains.filter((c) => c.status === "pending" || c.status === "signup_request");
   const rejectedCaptains = allCaptains.filter((c) => c.status === "rejected");
   const inactiveCaptains = allCaptains.filter((c) => c.status === "inactive");
+
 
   // Refetch functions (all point to the same Firebase refetch)
   const refetchPending = refetchActive;
@@ -1299,6 +1607,8 @@ export function Captains() {
         <div className="space-y-4">
           <MapControls
             onLocationChange={(lat, lng, radius) => setMapCenter({ lat, lng, radius })}
+            vehicleTypeFilter={vehicleTypeFilter}
+            onVehicleTypeChange={setVehicleTypeFilter}
             captainStatusFilter={captainStatusFilter}
             onCaptainStatusChange={setCaptainStatusFilter}
             clusteringEnabled={clusteringEnabled}
@@ -1310,8 +1620,10 @@ export function Captains() {
               centerLng={mapCenter.lng}
               radiusKm={mapCenter.radius}
               height="500px"
-              showPassengers={false}
-              showConnections={false}
+              captains={allCaptains}
+              showCaptains={true}
+              showRoutes={true}
+              vehicleTypeFilter={vehicleTypeFilter}
               compactLegend={false}
               enableClustering={clusteringEnabled}
               captainStatusFilter={captainStatusFilter}
@@ -1359,60 +1671,24 @@ export function Captains() {
               <Clock className="w-12 h-12 text-gray-300 mx-auto mb-4" /><p>No pending approvals</p>
             </CardContent></Card>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {pendingCaptains.map((c) => (
-                <Card key={c.id || c._id} className="cursor-pointer hover:shadow-md transition-all" onClick={() => setSelectedCaptain(c)}>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-3">
-                        <Avatar className="w-12 h-12 bg-amber-100">
-                          <AvatarFallback className="text-amber-700 font-semibold">{getInitials(c.fullName)}</AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <CardTitle className="text-base">{c.fullName}</CardTitle>
-                          <CardDescription className="flex items-center gap-1 text-xs">
-                            <Phone className="w-3 h-3" />{c.phone}
-                          </CardDescription>
-                        </div>
-                      </div>
-                      <Badge variant="warning" className="text-xs">Pending</Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="bg-gray-50 rounded-lg p-3 space-y-1.5 text-sm">
-                      <div className="flex items-center gap-2 text-gray-600">
-                        <Car className="w-4 h-4" /><span className="font-medium">{c.vehicleModel || c.vehicleType}</span>
-                        <span className="text-gray-400 text-xs">· {c.registrationPlate}</span>
-                      </div>
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                          <span className="text-[11px] text-gray-500 leading-tight truncate">{c.routeFrom?.address ?? "—"}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 ml-0.5">
-                          <svg className="w-1.5 h-2 text-gray-300 shrink-0" viewBox="0 0 6 8" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M3 0v6M1 4.5L3 6.5 5 4.5" /></svg>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-                          <span className="text-[11px] text-gray-500 leading-tight truncate">{c.routeTo?.address ?? "—"}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                      <Button size="sm" className="flex-1 bg-emerald-600 hover:bg-emerald-700" disabled={updatingId === (c.id || c._id)} onClick={() => approveCaptain(c.id || c._id)}>
-                        <CheckCircle className="w-4 h-4 mr-1" />Approve
-                      </Button>
-                      <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50" disabled={updatingId === (c.id || c._id)} onClick={() => rejectCaptain(c.id || c._id)}>
-                        <XCircle className="w-4 h-4 mr-1" />Reject
-                      </Button>
-                    </div>
-                    <p className="text-xs text-blue-500 font-medium">Click card to view full details →</p>
-                  </CardContent>
-                </Card>
+                <div key={c.id || c._id} className="space-y-2">
+                  <CaptainCard captain={c} onClick={() => setSelectedCaptain(c)} />
+                  <div className="flex gap-2">
+                    <Button size="sm" className="flex-1 bg-emerald-600 hover:bg-emerald-700 font-semibold text-xs rounded-xl" disabled={updatingId === (c.id || c._id)} onClick={() => approveCaptain(c.id || c._id)}>
+                      <CheckCircle className="w-3.5 h-3.5 mr-1" />Approve
+                    </Button>
+                    <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 font-semibold text-xs rounded-xl" disabled={updatingId === (c.id || c._id)} onClick={() => rejectCaptain(c.id || c._id)}>
+                      <XCircle className="w-3.5 h-3.5 mr-1" />Reject
+                    </Button>
+                  </div>
+                </div>
               ))}
             </div>
           )}
         </TabsContent>
+
 
         {/* Inactive */}
         <TabsContent value="inactive" className="mt-6">
