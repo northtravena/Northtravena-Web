@@ -36,7 +36,7 @@ import {
 import { usePagination } from "@/lib/usePagination";
 import { Pagination } from "@/components/Pagination";
 import { LiveCaptainMap } from "@/components/LiveCaptainMap";
-import { MapControls, type CaptainStatusFilter, type VehicleTypeFilter } from "@/components/MapControls";
+import { MapControls, type CaptainStatusFilter } from "@/components/MapControls";
 import { LocationPicker } from "@/components/LocationPicker";
 
 const ROUTE_FROM_ICON = makeSmallPinIcon("#10b981");
@@ -1377,7 +1377,6 @@ export function Captains() {
   const [mapCenter, setMapCenter] = useState({ lat: 35.9208, lng: 74.3145, radius: 50 });
   const [clusteringEnabled, setClusteringEnabled] = useState(false);
   const [captainStatusFilter, setCaptainStatusFilter] = useState<CaptainStatusFilter>("all");
-  const [vehicleTypeFilter, setVehicleTypeFilter] = useState<VehicleTypeFilter>("all");
   const pagination = usePagination();
 
   // Fetch all captains from Firebase
@@ -1607,8 +1606,6 @@ export function Captains() {
         <div className="space-y-4">
           <MapControls
             onLocationChange={(lat, lng, radius) => setMapCenter({ lat, lng, radius })}
-            vehicleTypeFilter={vehicleTypeFilter}
-            onVehicleTypeChange={setVehicleTypeFilter}
             captainStatusFilter={captainStatusFilter}
             onCaptainStatusChange={setCaptainStatusFilter}
             clusteringEnabled={clusteringEnabled}
@@ -1623,7 +1620,6 @@ export function Captains() {
               captains={allCaptains}
               showCaptains={true}
               showRoutes={true}
-              vehicleTypeFilter={vehicleTypeFilter}
               compactLegend={false}
               enableClustering={clusteringEnabled}
               captainStatusFilter={captainStatusFilter}

@@ -2,12 +2,49 @@
 // Fixed top bar. Reads the current page title from React Router location.
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useLocation } from "react-router-dom";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Bell, CheckCheck } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Bell, CheckCheck, LogOut, AlertTriangle } from "lucide-react";
 import { api } from "@/lib/api";
 import { getRouteLabel } from "@/routes/adminRoutes";
 import type { ApiUser, Notification } from "@/types/api";
+
+// ...
+
+function LogoutConfirmModal({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  return createPortal(
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4" style={{ backgroundColor: "rgba(0,0,0,0.6)" }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-fade-in-up">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center shrink-0 text-red-600">
+            <LogOut className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-gray-900">Sign Out Confirmation</h3>
+            <p className="text-xs text-gray-500">Confirm session termination</p>
+          </div>
+        </div>
+        <p className="text-sm text-gray-700 mb-6">
+          Are you sure you want to sign out of the Admin Portal? You will need to log in again to access the dashboard.
+        </p>
+        <div className="flex gap-3">
+          <Button variant="outline" className="flex-1 rounded-xl" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            className="flex-1 bg-red-600 hover:bg-red-700 text-white rounded-xl gap-2"
+            onClick={onConfirm}
+          >
+            <LogOut className="w-4 h-4" /> Sign Out
+          </Button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
 
 // ─── Firebase notification shape ─────────────────────────────────────────────
 interface FbNotification {
@@ -52,12 +89,31 @@ export function Topbar({ user, onLogout }: TopbarProps) {
   const { pathname } = useLocation();
   const pageTitle = getRouteLabel(pathname);
 
-  const [unified, setUnified]           = useState<UnifiedNotification[]>([]);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const dropdownRef                     = useRef<HTMLDivElement>(null);
+  const [unified, setUnified]               = useState<UnifiedNotification[]>([]);
+  const [dropdownOpen, setDropdownOpen]     = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const dropdownRef                         = useRef<HTMLDivElement>(null);
+
+  // LocalStorage helpers to persist read status locally as fallback
+  const getLocalReadKeys = (): Set<string> => {
+    try {
+      const stored = localStorage.getItem("admin_read_notification_keys");
+      return new Set(stored ? JSON.parse(stored) : []);
+    } catch {
+      return new Set();
+    }
+  };
+
+  const saveLocalReadKeys = (keys: Set<string>) => {
+    try {
+      localStorage.setItem("admin_read_notification_keys", JSON.stringify(Array.from(keys)));
+    } catch { /* silent */ }
+  };
 
   // ── Fetch both notification sources ────────────────────────────────────────
   const fetchAll = useCallback(async () => {
+    const localReadKeys = getLocalReadKeys();
+
     const [mongoResult, fbResult] = await Promise.allSettled([
       api.get<Notification[]>("/notifications"),
       api.get<FbNotification[]>("/firebase/notifications"),
@@ -65,29 +121,35 @@ export function Topbar({ user, onLogout }: TopbarProps) {
 
     const mongoItems: UnifiedNotification[] =
       mongoResult.status === "fulfilled"
-        ? mongoResult.value.map((n) => ({
-            key:       `mongo-${n._id}`,
-            source:    "mongo" as const,
-            mongoId:   n._id,
-            title:     n.title,
-            message:   n.message,
-            read:      n.read,
-            createdAt: new Date(n.createdAt),
-          }))
+        ? mongoResult.value.map((n) => {
+            const key = `mongo-${n._id}`;
+            return {
+              key,
+              source:    "mongo" as const,
+              mongoId:   n._id,
+              title:     n.title,
+              message:   n.message,
+              read:      n.read || localReadKeys.has(key),
+              createdAt: new Date(n.createdAt),
+            };
+          })
         : [];
 
     const fbItems: UnifiedNotification[] =
       fbResult.status === "fulfilled"
-        ? fbResult.value.map((n) => ({
-            key:       `fb-${n.id}`,
-            source:    "firebase" as const,
-            fbId:      n.id,
-            title:     n.title ?? "Notification",
-            message:   n.message ?? n.body ?? "",
-            read:      n.read ?? false,
-            createdAt: fbTimestamp(n.createdAt),
-            userName:  n.userName,
-          }))
+        ? fbResult.value.map((n) => {
+            const key = `fb-${n.id}`;
+            return {
+              key,
+              source:    "firebase" as const,
+              fbId:      n.id,
+              title:     n.title ?? "Notification",
+              message:   n.message ?? n.body ?? "",
+              read:      (n.read === true) || localReadKeys.has(key),
+              createdAt: fbTimestamp(n.createdAt),
+              userName:  n.userName,
+            };
+          })
         : [];
 
     const merged = [...mongoItems, ...fbItems].sort(
@@ -111,22 +173,54 @@ export function Topbar({ user, onLogout }: TopbarProps) {
   // ── Mark a single notification as read ─────────────────────────────────────
   const markRead = async (item: UnifiedNotification) => {
     if (item.read) return;
+
+    // Optimistically update UI
+    setUnified((prev) =>
+      prev.map((n) => (n.key === item.key ? { ...n, read: true } : n))
+    );
+
+    // Save key to local storage
+    const localKeys = getLocalReadKeys();
+    localKeys.add(item.key);
+    saveLocalReadKeys(localKeys);
+
+    // Patch backend database
     if (item.source === "mongo" && item.mongoId) {
       try {
         await api.patch(`/notifications/${item.mongoId}/read`, {});
       } catch { /* silent */ }
+    } else if (item.source === "firebase" && item.fbId) {
+      try {
+        await api.patch(`/firebase/notifications/${item.fbId}/read`, {});
+      } catch { /* silent */ }
     }
-    setUnified((prev) =>
-      prev.map((n) => (n.key === item.key ? { ...n, read: true } : n))
-    );
   };
 
   const markAllRead = async () => {
-    const unread = unified.filter((n) => !n.read && n.source === "mongo" && n.mongoId);
-    await Promise.allSettled(
-      unread.map((n) => api.patch(`/notifications/${n.mongoId}/read`, {}))
-    );
+    const unread = unified.filter((n) => !n.read);
+    if (unread.length === 0) return;
+
+    // Optimistically update UI
     setUnified((prev) => prev.map((n) => ({ ...n, read: true })));
+
+    // Save all keys to local storage
+    const localKeys = getLocalReadKeys();
+    unread.forEach((n) => localKeys.add(n.key));
+    saveLocalReadKeys(localKeys);
+
+    // Patch backends concurrently
+    const mongoUnread = unread.filter((n) => n.source === "mongo" && n.mongoId);
+    const fbUnread = unread.filter((n) => n.source === "firebase");
+
+    const promises: Promise<any>[] = [];
+    mongoUnread.forEach((n) => {
+      promises.push(api.patch(`/notifications/${n.mongoId}/read`, {}));
+    });
+    if (fbUnread.length > 0) {
+      promises.push(api.patch("/firebase/notifications/read-all", {}));
+    }
+
+    await Promise.allSettled(promises);
   };
 
   const unreadCount = unified.filter((n) => !n.read).length;
@@ -261,13 +355,24 @@ export function Topbar({ user, onLogout }: TopbarProps) {
             <AvatarFallback>{user ? getInitials(user.fullName) : "AD"}</AvatarFallback>
           </Avatar>
           <button
-            onClick={onLogout}
-            className="text-xs text-gray-400 hover:text-red-500 transition-colors px-2 py-1 rounded hover:bg-red-50"
+            onClick={() => setShowLogoutConfirm(true)}
+            className="text-xs text-gray-500 hover:text-red-600 transition-colors px-2.5 py-1.5 rounded-lg hover:bg-red-50 font-medium flex items-center gap-1.5 border border-transparent hover:border-red-200"
           >
+            <LogOut className="w-3.5 h-3.5" />
             Sign out
           </button>
         </div>
       </div>
+
+      {showLogoutConfirm && (
+        <LogoutConfirmModal
+          onConfirm={() => {
+            setShowLogoutConfirm(false);
+            onLogout();
+          }}
+          onCancel={() => setShowLogoutConfirm(false)}
+        />
+      )}
     </header>
   );
 }

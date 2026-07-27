@@ -298,12 +298,9 @@ export function LiveCaptainMap({
 
   const rawCaptains = (externalCaptains && externalCaptains.length > 0) ? externalCaptains : internalCaptains;
 
-  // Filter captains by vehicle type and status
+  // Filter captains by status
   const filteredCaptains = useMemo(() => {
     let result = rawCaptains;
-    if (vehicleTypeFilter && vehicleTypeFilter !== "all") {
-      result = result.filter((c) => c.vehicleType === vehicleTypeFilter);
-    }
     if (internalStatusFilter !== "all") {
       if (internalStatusFilter === "live") {
         result = result.filter((c) => {
@@ -320,7 +317,7 @@ export function LiveCaptainMap({
       }
     }
     return result;
-  }, [rawCaptains, vehicleTypeFilter, internalStatusFilter]);
+  }, [rawCaptains, internalStatusFilter]);
 
   // Cluster config
   const clusterProps = enableClustering

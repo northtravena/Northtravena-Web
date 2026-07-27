@@ -19,8 +19,6 @@ export type CaptainStatusFilter = "all" | "active" | "live" | "offline" | "pendi
 
 interface MapControlsProps {
   onLocationChange: (lat: number, lng: number, radius: number) => void;
-  vehicleTypeFilter?: VehicleTypeFilter;
-  onVehicleTypeChange?: (type: VehicleTypeFilter) => void;
   matchStatusFilter?: MatchStatusFilter;
   onMatchStatusChange?: (status: MatchStatusFilter) => void;
   captainStatusFilter?: CaptainStatusFilter;
@@ -37,13 +35,6 @@ const PRESET_LOCATIONS = [
   { name: "Karachi", lat: 24.8607, lng: 67.0011 },
 ];
 
-const VEHICLE_TYPES: { value: VehicleTypeFilter; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "car", label: "Car" },
-  { value: "van", label: "Van" },
-  { value: "other", label: "Other" },
-];
-
 const CAPTAIN_STATUSES: { value: CaptainStatusFilter; label: string; color: string }[] = [
   { value: "all", label: "All Captains", color: "" },
   { value: "active", label: "Approved", color: "text-emerald-600" },
@@ -53,9 +44,7 @@ const CAPTAIN_STATUSES: { value: CaptainStatusFilter; label: string; color: stri
   { value: "rejected", label: "Rejected", color: "text-red-500" },
 ];
 
-
-
-export function MapControls({ onLocationChange, vehicleTypeFilter = "all", onVehicleTypeChange, matchStatusFilter = "all", onMatchStatusChange, captainStatusFilter = "all", onCaptainStatusChange, clusteringEnabled = false, onClusteringToggle }: MapControlsProps) {
+export function MapControls({ onLocationChange, matchStatusFilter = "all", onMatchStatusChange, captainStatusFilter = "all", onCaptainStatusChange, clusteringEnabled = false, onClusteringToggle }: MapControlsProps) {
   const [radius, setRadius] = useState(50);
   const [active, setActive] = useState("Gilgit");
 
@@ -88,24 +77,6 @@ export function MapControls({ onLocationChange, vehicleTypeFilter = "all", onVeh
           {loc.name}
         </Button>
       ))}
-
-      {/* Vehicle type filter */}
-      {onVehicleTypeChange && (
-        <div className="flex items-center gap-1.5 ml-2">
-          <Car className="w-3.5 h-3.5 text-gray-400" />
-          {VEHICLE_TYPES.map((vt) => (
-            <Button
-              key={vt.value}
-              variant={vehicleTypeFilter === vt.value ? "default" : "outline"}
-              size="sm"
-              onClick={() => onVehicleTypeChange(vt.value)}
-              className="h-7 text-xs"
-            >
-              {vt.label}
-            </Button>
-          ))}
-        </div>
-      )}
 
       {/* Captain status filter */}
       {onCaptainStatusChange && (

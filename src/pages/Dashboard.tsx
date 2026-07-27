@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  Users, UserCheck, Car, IndianRupee, AlertTriangle,
+  Users, UserCheck, Car, IndianRupee,
   MapPin, Clock, ArrowRight, Calendar, Wrench,
 } from "lucide-react";
 import {
@@ -14,7 +13,7 @@ import {
   usePendingUserServices, useActiveCaptains,
 } from "@/lib/queries";
 import { LiveCaptainMap } from "@/components/LiveCaptainMap";
-import { MapControls, type VehicleTypeFilter, type MatchStatusFilter, type CaptainStatusFilter } from "@/components/MapControls";
+import { MapControls, type MatchStatusFilter, type CaptainStatusFilter } from "@/components/MapControls";
 
 // ─── Firebase booking shape (mirrors Services.tsx) ────────────────────────────
 interface FbUser {
@@ -143,7 +142,6 @@ export function Dashboard() {
     : (activeCaptainsResult?.pagination?.total ?? activeCaptains.length);
 
   const [mapCenter, setMapCenter] = useState({ lat: 35.9208, lng: 74.3145, radius: 50 });
-  const [vehicleTypeFilter, setVehicleTypeFilter] = useState<VehicleTypeFilter>("all");
   const [clusteringEnabled, setClusteringEnabled] = useState(false);
   const [matchStatusFilter, setMatchStatusFilter] = useState<MatchStatusFilter>("all");
   const [captainStatusFilter, setCaptainStatusFilter] = useState<CaptainStatusFilter>("all");
@@ -152,19 +150,19 @@ export function Dashboard() {
 
   // Helpers for Firebase booking fields (multiple field names)
   const fbAmount = (b: FbBooking) => b.totalAmount ?? b.amount ?? b.fare ?? b.price ?? 0;
-  const fbDate = (b: FbBooking) => b.pickupDate ?? b.date ?? "";
+  const fbDateVal = (b: FbBooking) => b.pickupDate ?? b.date ?? "";
 
   const PLATFORM_FEE_PCT = 0.20; // 20% platform commission for Rides/Bookings
 
   const activeBookings = fbBookings.filter(
-    (b) => b.status?.toLowerCase() === "approved" && fbDate(b).startsWith(today)
+    (b) => b.status?.toLowerCase() === "approved" && fbDateVal(b).startsWith(today)
   );
 
   const activeServices = (rawFbServices as FbUserService[]).filter(
     (s) => (s.status ?? "").toLowerCase() === "approved"
   );
 
-  const bookingsToday = fbBookings.filter((b) => fbDate(b).startsWith(today)).length;
+  const bookingsToday = fbBookings.filter((b) => fbDateVal(b).startsWith(today)).length;
 
   const isCompleted = (s?: string) => {
     const k = (s ?? "").toLowerCase();
@@ -202,22 +200,6 @@ export function Dashboard() {
   return (
     <div className="space-y-6 animate-fade-in-up">
 
-      {/* Alert Banner */}
-      {(pendingServices.length > 0 || bookingsToday > 0) && (
-        <Alert variant="warning" className="border-amber-400 bg-amber-50">
-          <AlertTriangle className="h-5 w-5 text-amber-600" />
-          <AlertDescription className="text-amber-900">
-            {pendingServices.length > 0 && (
-              <><span className="font-semibold">{pendingServices.length} captain approval{pendingServices.length !== 1 ? "s" : ""}</span>{" "}pending</>
-            )}
-            {pendingServices.length > 0 && bookingsToday > 0 && " | "}
-            {bookingsToday > 0 && (
-              <><span className="font-semibold">{bookingsToday} booking{bookingsToday !== 1 ? "s" : ""}</span>{" "}today</>
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
-
       {/* Stat Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat, index) => (
@@ -250,8 +232,6 @@ export function Dashboard() {
         <CardContent className="p-4 space-y-3">
           <MapControls
             onLocationChange={(lat, lng, radius) => setMapCenter({ lat, lng, radius })}
-            vehicleTypeFilter={vehicleTypeFilter}
-            onVehicleTypeChange={setVehicleTypeFilter}
             captainStatusFilter={captainStatusFilter}
             onCaptainStatusChange={setCaptainStatusFilter}
             clusteringEnabled={clusteringEnabled}
@@ -264,7 +244,6 @@ export function Dashboard() {
             height="420px"
             showCaptains={true}
             showRoutes={true}
-            vehicleTypeFilter={vehicleTypeFilter}
             enableClustering={clusteringEnabled}
             captainStatusFilter={captainStatusFilter}
           />
