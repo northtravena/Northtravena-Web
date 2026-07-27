@@ -50,7 +50,7 @@ export const adminRoutes: AdminRoute[] = [
   // ── Daily Rides ─────────────────────────────────────────────────────────────
   { path: "/captains",     label: "Captains",     element: Captains,     icon: Users,           section: "daily-rides"     },
   { path: "/passengers",   label: "Passengers",   element: Passengers,   icon: UserCog,         section: "daily-rides"     },
-  { path: "/rides",        label: "Rides",        element: Rides,        icon: Route,           section: "daily-rides"     },
+  { path: "/rides",        label: "Ride Sharing", element: Rides,        icon: Route,           section: "daily-rides"     },
   // ── Support & Finance ────────────────────────────────────────────────────────
   { path: "/complaints",   label: "Complaints",   element: Complaints,   icon: AlertTriangle,   section: "support-finance" },
   { path: "/transactions", label: "Transactions", element: Transactions, icon: CreditCard,      section: "support-finance" },

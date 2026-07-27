@@ -7,6 +7,8 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Users, UserCheck, RefreshCw, Search, Mail, Phone } from "lucide-react";
 import { useFirebaseUsers } from "@/lib/queries";
+import { usePagination } from "@/lib/usePagination";
+import { Pagination } from "@/components/Pagination";
 
 // ─── Firebase user shape ──────────────────────────────────────────────────────
 interface FirebaseUser {
@@ -57,6 +59,7 @@ export function AllUsers() {
   const [search, setSearch] = useState("");
   const { data: rawUsers = [], isLoading: loading, error, refetch } = useFirebaseUsers();
   const users = rawUsers as FirebaseUser[];
+  const pagination = usePagination();
 
   // Client-side search
   const filtered = users.filter((u) => {
@@ -68,6 +71,18 @@ export function AllUsers() {
       getPhone(u).toLowerCase().includes(q)
     );
   });
+
+  // Update pagination total when filtered data changes
+  // (setTotal is stable, no need in deps)
+  const filteredCount = filtered.length;
+  const [prevCount, setPrevCount] = useState(0);
+  if (filteredCount !== prevCount) {
+    setPrevCount(filteredCount);
+    pagination.setTotal(filteredCount);
+  }
+
+  // Client-side pagination
+  const paginatedUsers = pagination.slice(filtered);
 
   return (
     <div className="space-y-6 animate-fade-in-up">
@@ -150,47 +165,57 @@ export function AllUsers() {
               <p>{search ? "No users match your search" : "No users registered yet"}</p>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Phone</TableHead>
-                  <TableHead>Joined</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((user) => (
-                  <TableRow key={user.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <Avatar className="w-8 h-8 bg-emerald-100">
-                          <AvatarFallback className="text-emerald-700 text-xs font-semibold">
-                            {getInitials(getName(user))}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className="font-medium">{getName(user)}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1 text-sm text-gray-600">
-                        <Mail className="w-3 h-3" />
-                        {user.email ?? "—"}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1 text-sm text-gray-600">
-                        <Phone className="w-3 h-3" />
-                        {getPhone(user)}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm text-gray-500">
-                      {getDate(user)}
-                    </TableCell>
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Phone</TableHead>
+                    <TableHead>Joined</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {paginatedUsers.map((user) => (
+                    <TableRow key={user.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <Avatar className="w-8 h-8 bg-emerald-100">
+                            <AvatarFallback className="text-emerald-700 text-xs font-semibold">
+                              {getInitials(getName(user))}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="font-medium">{getName(user)}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1 text-sm text-gray-600">
+                          <Mail className="w-3 h-3" />
+                          {user.email ?? "—"}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1 text-sm text-gray-600">
+                          <Phone className="w-3 h-3" />
+                          {getPhone(user)}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm text-gray-500">
+                        {getDate(user)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <Pagination
+                page={pagination.page}
+                limit={pagination.limit}
+                total={filtered.length}
+                totalPages={pagination.totalPages}
+                onPageChange={pagination.setPage}
+                onLimitChange={pagination.setLimit}
+              />
+            </>
           )}
         </CardContent>
       </Card>

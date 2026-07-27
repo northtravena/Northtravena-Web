@@ -25,6 +25,8 @@ import {
 } from "lucide-react";
 import { useAdminComplaints, useUpdateComplaintStatus } from "@/lib/queries";
 import type { Complaint } from "@/types/api";
+import { usePagination } from "@/lib/usePagination";
+import { Pagination } from "@/components/Pagination";
 
 export function Complaints() {
   const [typeFilter, setTypeFilter] = useState("all");
@@ -56,11 +58,23 @@ export function Complaints() {
     }
   };
 
+  const pagination = usePagination();
+
   const filteredComplaints = complaints.filter((complaint) => {
     if (typeFilter !== "all" && complaint.type !== typeFilter) return false;
     if (statusFilter !== "all" && complaint.status !== statusFilter) return false;
     return true;
   });
+
+  // Update pagination total when filtered data changes
+  const filteredCount = filteredComplaints.length;
+  const [prevCount, setPrevCount] = useState(0);
+  if (filteredCount !== prevCount) {
+    setPrevCount(filteredCount);
+    pagination.setTotal(filteredCount);
+  }
+
+  const paginatedComplaints = pagination.slice(filteredComplaints);
 
   const getTypeLabel = (type: string) => {
     switch (type) {
@@ -201,7 +215,7 @@ export function Complaints() {
 
       {/* Complaint Cards */}
       <div className="grid gap-4 md:grid-cols-2">
-        {filteredComplaints.map((complaint, index) => (
+        {paginatedComplaints.map((complaint, index) => (
           <Card key={complaint.id} className="animate-fade-in-up" style={{ animationDelay: `${index * 80}ms` }}>
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">
@@ -269,6 +283,17 @@ export function Complaints() {
           </Card>
         ))}
       </div>
+
+      {filteredComplaints.length > 0 && (
+        <Pagination
+          page={pagination.page}
+          limit={pagination.limit}
+          total={filteredComplaints.length}
+          totalPages={pagination.totalPages}
+          onPageChange={pagination.setPage}
+          onLimitChange={pagination.setLimit}
+        />
+      )}
 
       {filteredComplaints.length === 0 && (
         <Card>

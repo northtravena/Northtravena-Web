@@ -9,8 +9,53 @@ import {
 import {
   IndianRupee, Car, MapPin, CheckCircle, TrendingUp, TrendingDown, RefreshCw, XCircle, Clock,
 } from "lucide-react";
-import type { Booking } from "@/types/api";
-import { useAllBookings } from "@/lib/queries";
+import { useFirebaseBookings } from "@/lib/queries";
+import { usePagination } from "@/lib/usePagination";
+import { Pagination } from "@/components/Pagination";
+
+// ─── Firebase booking shape ───────────────────────────────────────────────────
+interface FbUser {
+  name?: string; fullName?: string; displayName?: string;
+  email?: string;
+}
+
+interface FbBooking {
+  id: string;
+  userId?: string;
+  userName?: string; userEmail?: string;
+  _user?: FbUser; user?: FbUser; customer?: FbUser;
+  source?: string; pickup?: string; pickupLocation?: string;
+  destination?: string; dropoff?: string; dropLocation?: string;
+  pickupDate?: string; date?: string;
+  tripType?: string;
+  totalAmount?: number; amount?: number; fare?: number; price?: number;
+  status: string;
+  createdAt?: string | { _seconds: number; _nanoseconds: number };
+}
+
+// ─── Field resolvers ──────────────────────────────────────────────────────────
+const fbAmount = (b: FbBooking) => b.totalAmount ?? b.amount ?? b.fare ?? b.price ?? 0;
+const fbDate = (b: FbBooking) => b.pickupDate ?? b.date ?? "—";
+const fbSource = (b: FbBooking) => b.source ?? b.pickup ?? b.pickupLocation ?? "—";
+const fbDest = (b: FbBooking) => b.destination ?? b.dropoff ?? b.dropLocation ?? "—";
+const fbName = (b: FbBooking) => {
+  const u = b._user ?? b.user ?? b.customer;
+  return b.userName ?? u?.fullName ?? u?.name ?? "—";
+};
+const fbTripType = (b: FbBooking) => {
+  const t = (b.tripType ?? "").toLowerCase().replace(/[_\s-]/g, "");
+  if (t === "oneway") return "One Way";
+  if (t === "roundtrip") return "Round Trip";
+  if (t === "monthly") return "Monthly";
+  return b.tripType ?? "—";
+};
+const fbTripTypeRaw = (b: FbBooking) => (b.tripType ?? "").toLowerCase().replace(/[_\s-]/g, "");
+
+// ─── Status helpers ───────────────────────────────────────────────────────────
+const isCompleted = (s: string) => s === "completed" || s === "Complete";
+const isPending = (s: string) => s === "Pending" || s === "pending";
+const isApproved = (s: string) => s === "Approved" || s === "accepted" || s === "approved";
+const isCanceled = (s: string) => s === "Canceled" || s === "Cancelled" || s === "cancelled" || s === "canceled";
 
 const PLATFORM_FEE_PCT = 0.10; // 10%
 
@@ -20,14 +65,32 @@ function fmt(amount: number) {
 
 export function Transactions() {
   const [activeTab, setActiveTab] = useState("completed");
-  const { data: bookings = [], isLoading: loading, error, refetch } = useAllBookings();
+  const pagination = usePagination();
 
-  const completed = bookings.filter((b) => b.status === "Completed");
-  const pending = bookings.filter((b) => b.status === "Pending");
-  const approved = bookings.filter((b) => b.status === "Approved");
-  const canceled = bookings.filter((b) => b.status === "Canceled");
+  const { data: rawFbBookings = [], isLoading: loading, error, refetch } = useFirebaseBookings();
+  const fbBookings = rawFbBookings as FbBooking[];
 
-  const totalRevenue = completed.reduce((s, b) => s + b.totalAmount, 0);
+  const completed = fbBookings.filter((b) => isCompleted(b.status));
+  const pending = fbBookings.filter((b) => isPending(b.status));
+  const approved = fbBookings.filter((b) => isApproved(b.status));
+  const canceled = fbBookings.filter((b) => isCanceled(b.status));
+
+  // Get current tab's data and paginate
+  const currentTabData = activeTab === "completed" ? completed :
+                          activeTab === "approved" ? approved :
+                          activeTab === "pending" ? pending : canceled;
+
+  const paginatedData = pagination.slice(currentTabData);
+
+  // Update pagination total when tab changes
+  const tabCount = currentTabData.length;
+  const [prevCount, setPrevCount] = useState(0);
+  if (tabCount !== prevCount) {
+    setPrevCount(tabCount);
+    pagination.setTotal(tabCount);
+  }
+
+  const totalRevenue = completed.reduce((s, b) => s + fbAmount(b), 0);
   const totalFees = Math.round(totalRevenue * PLATFORM_FEE_PCT);
   const totalNet = totalRevenue - totalFees;
 
@@ -80,7 +143,10 @@ export function Transactions() {
         </Button>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <Tabs value={activeTab} onValueChange={(v) => {
+        setActiveTab(v);
+        pagination.setPage(1);
+      }} className="w-full">
         <TabsList className="grid w-full max-w-2xl grid-cols-4">
           <TabsTrigger value="completed" className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4" />Completed ({completed.length})
@@ -109,6 +175,7 @@ export function Transactions() {
               {completed.length === 0 ? (
                 <div className="text-center py-8 text-gray-400">No completed bookings yet</div>
               ) : (
+                <>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -122,36 +189,39 @@ export function Transactions() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {completed.map((b) => {
-                      const fee = Math.round(b.totalAmount * PLATFORM_FEE_PCT);
-                      const net = b.totalAmount - fee;
+                    {paginatedData.map((b) => {
+                      const amount = fbAmount(b);
+                      const fee = Math.round(amount * PLATFORM_FEE_PCT);
+                      const net = amount - fee;
                       return (
-                        <TableRow key={b._id}>
-                          <TableCell className="font-medium">{b.userId?.fullName ?? "—"}</TableCell>
+                        <TableRow key={b.id}>
+                          <TableCell className="font-medium">{fbName(b)}</TableCell>
                           <TableCell className="text-sm text-gray-600 max-w-[140px] truncate">
-                            {b.source} → {b.destination}
+                            {fbSource(b)} → {fbDest(b)}
                           </TableCell>
                           <TableCell>
                             <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                              {b.tripType === "oneWay" ? "One Way" : b.tripType === "roundTrip" ? "Round Trip" : "Monthly"}
+                              {fbTripType(b)}
                             </span>
                           </TableCell>
-                          <TableCell className="text-sm text-gray-500">{b.pickupDate}</TableCell>
-                          <TableCell className="font-medium">{fmt(b.totalAmount)}</TableCell>
+                          <TableCell className="text-sm text-gray-500">{fbDate(b)}</TableCell>
+                          <TableCell className="font-medium">{fmt(amount)}</TableCell>
                           <TableCell className="text-gray-500">- {fmt(fee)}</TableCell>
                           <TableCell className="font-medium text-emerald-600">{fmt(net)}</TableCell>
                         </TableRow>
                       );
                     })}
-                    {/* Totals row */}
-                    <TableRow className="bg-emerald-50 font-semibold">
-                      <TableCell colSpan={4} className="text-right text-gray-700">Totals</TableCell>
-                      <TableCell className="text-gray-900">{fmt(totalRevenue)}</TableCell>
-                      <TableCell className="text-gray-500">- {fmt(totalFees)}</TableCell>
-                      <TableCell className="text-emerald-700">{fmt(totalNet)}</TableCell>
-                    </TableRow>
                   </TableBody>
                 </Table>
+                <Pagination
+                  page={pagination.page}
+                  limit={pagination.limit}
+                  total={completed.length}
+                  totalPages={pagination.totalPages}
+                  onPageChange={pagination.setPage}
+                  onLimitChange={pagination.setLimit}
+                />
+                </>
               )}
             </CardContent>
           </Card>
@@ -159,17 +229,17 @@ export function Transactions() {
 
         {/* Approved */}
         <TabsContent value="approved" className="mt-6">
-          <BookingTable bookings={approved} title="Approved Bookings" icon={<TrendingUp className="w-5 h-5 text-blue-600" />} />
+          <BookingTable bookings={approved} title="Approved Bookings" icon={<TrendingUp className="w-5 h-5 text-blue-600" />} pagination={pagination} />
         </TabsContent>
 
         {/* Pending */}
         <TabsContent value="pending" className="mt-6">
-          <BookingTable bookings={pending} title="Pending Bookings" icon={<Clock className="w-5 h-5 text-amber-600" />} />
+          <BookingTable bookings={pending} title="Pending Bookings" icon={<Clock className="w-5 h-5 text-amber-600" />} pagination={pagination} />
         </TabsContent>
 
         {/* Canceled */}
         <TabsContent value="canceled" className="mt-6">
-          <BookingTable bookings={canceled} title="Canceled Bookings" icon={<XCircle className="w-5 h-5 text-red-600" />} />
+          <BookingTable bookings={canceled} title="Canceled Bookings" icon={<XCircle className="w-5 h-5 text-red-600" />} pagination={pagination} />
         </TabsContent>
       </Tabs>
     </div>
@@ -181,11 +251,15 @@ function BookingTable({
   bookings,
   title,
   icon,
+  pagination,
 }: {
-  bookings: Booking[];
+  bookings: FbBooking[];
   title: string;
   icon: React.ReactNode;
+  pagination: ReturnType<typeof usePagination>;
 }) {
+  const paginatedBookings = pagination.slice(bookings);
+
   return (
     <Card>
       <CardHeader>
@@ -197,6 +271,7 @@ function BookingTable({
         {bookings.length === 0 ? (
           <div className="text-center py-8 text-gray-400">No bookings in this category</div>
         ) : (
+          <>
           <Table>
             <TableHeader>
               <TableRow>
@@ -209,33 +284,33 @@ function BookingTable({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {bookings.map((b) => (
-                <TableRow key={b._id}>
-                  <TableCell className="font-medium">{b.userId?.fullName ?? "—"}</TableCell>
+              {paginatedBookings.map((b) => (
+                <TableRow key={b.id}>
+                  <TableCell className="font-medium">{fbName(b)}</TableCell>
                   <TableCell className="text-sm text-gray-600 max-w-[140px] truncate">
                     <div className="flex items-center gap-1">
                       <MapPin className="w-3 h-3 flex-shrink-0" />
-                      {b.source} → {b.destination}
+                      {fbSource(b)} → {fbDest(b)}
                     </div>
                   </TableCell>
                   <TableCell>
                     <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                      {b.tripType === "oneWay" ? "One Way" : b.tripType === "roundTrip" ? "Round Trip" : "Monthly"}
+                      {fbTripType(b)}
                     </span>
                   </TableCell>
-                  <TableCell className="text-sm text-gray-500">{b.pickupDate}</TableCell>
+                  <TableCell className="text-sm text-gray-500">{fbDate(b)}</TableCell>
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-1">
                       <IndianRupee className="w-3 h-3 text-gray-500" />
-                      {b.totalAmount.toLocaleString()}
+                      {fbAmount(b).toLocaleString()}
                     </div>
                   </TableCell>
                   <TableCell>
                     <Badge
                       variant={
-                        b.status === "Completed" ? "success" :
-                          b.status === "Approved" ? "info" :
-                            b.status === "Pending" ? "warning" : "error"
+                        isCompleted(b.status) ? "success" :
+                          isApproved(b.status) ? "info" :
+                            isPending(b.status) ? "warning" : "error"
                       }
                       className="text-xs"
                     >
@@ -246,6 +321,15 @@ function BookingTable({
               ))}
             </TableBody>
           </Table>
+          <Pagination
+            page={pagination.page}
+            limit={pagination.limit}
+            total={bookings.length}
+            totalPages={pagination.totalPages}
+            onPageChange={pagination.setPage}
+            onLimitChange={pagination.setLimit}
+          />
+          </>
         )}
       </CardContent>
     </Card>

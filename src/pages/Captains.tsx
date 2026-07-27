@@ -27,6 +27,8 @@ import {
   useCreateCaptain,
   useUpdateUserServiceStatus,
 } from "@/lib/queries";
+import { usePagination } from "@/lib/usePagination";
+import { Pagination } from "@/components/Pagination";
 import { LiveCaptainMap } from "@/components/LiveCaptainMap";
 import { MapControls, type CaptainStatusFilter } from "@/components/MapControls";
 import { LocationPicker } from "@/components/LocationPicker";
@@ -1089,6 +1091,7 @@ export function Captains() {
   const [mapCenter, setMapCenter] = useState({ lat: 35.9208, lng: 74.3145, radius: 50 });
   const [clusteringEnabled, setClusteringEnabled] = useState(false);
   const [captainStatusFilter, setCaptainStatusFilter] = useState<CaptainStatusFilter>("all");
+  const pagination = usePagination();
 
   // Fetch all captains from Firebase
   const { data: firebaseCaptains = [], isLoading: loadingActive, error: errorActive, refetch: refetchActive } = useFirebaseCaptains();
@@ -1125,9 +1128,13 @@ export function Captains() {
     currentLocation: captain.currentLocation || undefined,
 
     // Status and verification from Firebase
+    // Handle missing status field: check status, then accountStatus, then approved flag
     status: (captain.status?.toLowerCase() === "active" ? "active" :
       captain.status?.toLowerCase() === "inactive" ? "inactive" :
-        captain.status || "pending") as "pending" | "active" | "inactive" | "rejected",
+        captain.status?.toLowerCase() === "rejected" ? "rejected" :
+          captain.accountStatus?.toLowerCase() === "active" ? "active" :
+            captain.approved === true ? "active" :
+              captain.status || "pending") as "pending" | "active" | "inactive" | "rejected",
     isVerified: captain.isVerified || false,
 
     // Documents from Firebase
@@ -1170,7 +1177,8 @@ export function Captains() {
   const refetchRejected = refetchActive;
   const refetchInactive = refetchActive;
 
-  const { data: pendingServices = [], refetch: refetchServices } = usePendingUserServices();
+  const { data: pendingServicesResult, refetch: refetchServices } = usePendingUserServices(1, 1000);
+  const pendingServices = pendingServicesResult?.data ?? [];
 
   const allInactive = [...rejectedCaptains, ...inactiveCaptains];
 

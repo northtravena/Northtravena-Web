@@ -1,70 +1,123 @@
-import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  BarChart3,
-  TrendingUp,
-  TrendingDown,
-  Users,
-  Car,
-  IndianRupee,
-  AlertTriangle,
-  RefreshCw,
-  CheckCircle,
-  Clock,
-  XCircle,
+  BarChart3, TrendingUp, TrendingDown, Users, Car, IndianRupee,
+  RefreshCw, CheckCircle, Clock, XCircle,
 } from "lucide-react";
-import { api } from "@/lib/api";
-import type { Booking, Captain, AdminUser } from "@/types/api";
-import { LiveCaptainMap } from "@/components/LiveCaptainMap";
-import { Flame } from "lucide-react";
+import { useFirebaseBookings, useFirebaseCaptains, useFirebaseUsers } from "@/lib/queries";
+
+// ─── Firebase types ───────────────────────────────────────────────────────────
+interface FbUser {
+  id?: string;
+  name?: string; fullName?: string; displayName?: string;
+  email?: string; phone?: string; phoneNo?: string; phoneNumber?: string;
+  role?: string;
+  createdAt?: string | number | { _seconds?: number; seconds?: number };
+}
+
+interface FbBooking {
+  id: string;
+  userName?: string; userEmail?: string;
+  _user?: FbUser; user?: FbUser; customer?: FbUser;
+  source?: string; pickup?: string; pickupLocation?: string;
+  destination?: string; dropoff?: string; dropLocation?: string;
+  pickupDate?: string; date?: string;
+  tripType?: string;
+  totalAmount?: number; amount?: number; fare?: number; price?: number;
+  status: string;
+  createdAt?: string | { _seconds: number; _nanoseconds: number };
+}
+
+interface FbCaptain {
+  id: string;
+  fullName?: string; name?: string;
+  phone?: string; phoneNumber?: string; phoneNo?: string;
+  vehicle?: { brand?: string; model?: string; seats?: string };
+  vehicleType?: string; vehicleModel?: string;
+  routeFrom?: { address?: string; coordinates?: [number, number] };
+  routeTo?: { address?: string; coordinates?: [number, number] };
+  status?: string;
+  rating?: number;
+}
+
+// ─── Field resolvers ──────────────────────────────────────────────────────────
+const fbAmount = (b: FbBooking) => b.totalAmount ?? b.amount ?? b.fare ?? b.price ?? 0;
+const fbDate = (b: FbBooking) => b.pickupDate ?? b.date ?? "—";
+const fbSource = (b: FbBooking) => b.source ?? b.pickup ?? b.pickupLocation ?? "—";
+const fbDest = (b: FbBooking) => b.destination ?? b.dropoff ?? b.dropLocation ?? "—";
+const fbName = (b: FbBooking) => {
+  const u = b._user ?? b.user ?? b.customer;
+  return b.userName ?? u?.fullName ?? u?.name ?? "—";
+};
+const fbTripType = (b: FbBooking) => {
+  const t = (b.tripType ?? "").toLowerCase().replace(/[_\s-]/g, "");
+  if (t === "oneway") return "One Way";
+  if (t === "roundtrip") return "Round Trip";
+  if (t === "monthly") return "Monthly";
+  return b.tripType ?? "—";
+};
+const fbTripTypeKey = (b: FbBooking) => (b.tripType ?? "").toLowerCase().replace(/[_\s-]/g, "");
+
+const captainName = (c: FbCaptain) => c.fullName ?? c.name ?? "—";
+const captainPhone = (c: FbCaptain) => c.phone ?? c.phoneNumber ?? c.phoneNo ?? "—";
+const captainVehicle = (c: FbCaptain) => {
+  if (c.vehicle?.brand && c.vehicle?.model) return `${c.vehicle.brand} ${c.vehicle.model}`;
+  return c.vehicleModel ?? c.vehicleType ?? "—";
+};
+
+const userName = (u: FbUser) => u.fullName ?? u.name ?? u.displayName ?? "—";
+const userPhone = (u: FbUser) => u.phoneNo ?? u.phone ?? u.phoneNumber ?? "—";
+const userDate = (u: FbUser) => {
+  const raw = u.createdAt;
+  if (!raw) return "—";
+  if (typeof raw === "object" && raw !== null) {
+    const secs = (raw as { _seconds?: number })._seconds ?? (raw as { seconds?: number }).seconds;
+    if (secs) return new Date(secs * 1000).toLocaleDateString();
+  }
+  const d = new Date(raw as string | number);
+  return isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
+};
+
+// ─── Status helpers ───────────────────────────────────────────────────────────
+const isCompleted = (s: string) => s === "completed" || s === "Complete";
+const isPending = (s: string) => s === "Pending" || s === "pending";
+const isApproved = (s: string) => s === "Approved" || s === "accepted" || s === "approved";
+const isCanceled = (s: string) => s === "Canceled" || s === "Cancelled" || s === "cancelled" || s === "canceled";
+
+const statusColor = (s: string) => {
+  if (isCompleted(s)) return "bg-green-100 text-green-700";
+  if (isApproved(s)) return "bg-blue-100 text-blue-700";
+  if (isPending(s)) return "bg-amber-100 text-amber-700";
+  return "bg-red-100 text-red-700";
+};
+
+const PLATFORM_FEE_PCT = 0.10;
 
 export function Reports() {
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [captains, setCaptains] = useState<Captain[]>([]);
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: rawFbBookings = [], isLoading: loadingBookings, error: errorBookings, refetch: refetchBookings } = useFirebaseBookings();
+  const { data: rawFbCaptains = [], isLoading: loadingCaptains, refetch: refetchCaptains } = useFirebaseCaptains();
+  const { data: rawFbUsers = [], isLoading: loadingUsers, refetch: refetchUsers } = useFirebaseUsers();
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [allBookings, allCaptains, allUsers] = await Promise.all([
-        api.get<Booking[]>("/admin/bookings"),
-        api.get<Captain[]>("/admin/captains"),
-        api.get<AdminUser[]>("/admin/users"),
-      ]);
-      setBookings(allBookings);
-      setCaptains(allCaptains);
-      setUsers(allUsers);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load reports");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const bookings = rawFbBookings as FbBooking[];
+  const captains = rawFbCaptains as FbCaptain[];
+  const users = rawFbUsers as FbUser[];
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  const loading = loadingBookings || loadingCaptains || loadingUsers;
+  const error = errorBookings;
 
   // ── Derived stats ──────────────────────────────────────────────────────────
   const totalRevenue = bookings
-    .filter((b) => b.status === "Completed")
-    .reduce((sum, b) => sum + (b.totalAmount ?? 0), 0);
+    .filter((b) => isCompleted(b.status))
+    .reduce((sum, b) => sum + fbAmount(b), 0);
 
   const bookingsByStatus = {
-    Pending:   bookings.filter((b) => b.status === "Pending").length,
-    Approved:  bookings.filter((b) => b.status === "Approved").length,
-    Completed: bookings.filter((b) => b.status === "Completed").length,
-    Canceled:  bookings.filter((b) => b.status === "Canceled").length,
+    Pending:   bookings.filter((b) => isPending(b.status)).length,
+    Approved:  bookings.filter((b) => isApproved(b.status)).length,
+    Completed: bookings.filter((b) => isCompleted(b.status)).length,
+    Canceled:  bookings.filter((b) => isCanceled(b.status)).length,
   };
 
   const captainsByStatus = {
@@ -76,17 +129,25 @@ export function Reports() {
 
   // Group bookings by trip type
   const byTripType = bookings.reduce<Record<string, number>>((acc, b) => {
-    acc[b.tripType] = (acc[b.tripType] ?? 0) + 1;
+    const key = fbTripTypeKey(b);
+    if (key) acc[key] = (acc[key] ?? 0) + 1;
     return acc;
   }, {});
 
   // Revenue by trip type (completed only)
   const revenueByTripType = bookings
-    .filter((b) => b.status === "Completed")
+    .filter((b) => isCompleted(b.status))
     .reduce<Record<string, number>>((acc, b) => {
-      acc[b.tripType] = (acc[b.tripType] ?? 0) + (b.totalAmount ?? 0);
+      const key = fbTripTypeKey(b);
+      if (key) acc[key] = (acc[key] ?? 0) + fbAmount(b);
       return acc;
     }, {});
+
+  const refetchAll = () => {
+    refetchBookings();
+    refetchCaptains();
+    refetchUsers();
+  };
 
   if (loading) {
     return (
@@ -99,8 +160,8 @@ export function Reports() {
   if (error) {
     return (
       <div className="space-y-4">
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error}</div>
-        <Button onClick={fetchAll} variant="outline" className="gap-2">
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">{error instanceof Error ? error.message : "Failed to load reports"}</div>
+        <Button onClick={refetchAll} variant="outline" className="gap-2">
           <RefreshCw className="w-4 h-4" /> Retry
         </Button>
       </div>
@@ -110,7 +171,7 @@ export function Reports() {
   return (
     <div className="space-y-6 animate-fade-in-up">
       <div className="flex justify-end">
-        <Button onClick={fetchAll} variant="outline" size="sm" className="gap-2">
+        <Button onClick={refetchAll} variant="outline" size="sm" className="gap-2">
           <RefreshCw className="w-4 h-4" /> Refresh
         </Button>
       </div>
@@ -136,33 +197,6 @@ export function Reports() {
           </Card>
         ))}
       </div>
-
-      {/* ── Passenger Density Heatmap ──────────────────────────────────────── */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Flame className="w-5 h-5 text-orange-500" />
-            Passenger Density Heatmap
-          </CardTitle>
-          <p className="text-sm text-gray-500 -mt-2">
-            Visual concentration of passenger residences and workplaces — orange/red areas have high demand
-          </p>
-        </CardHeader>
-        <CardContent className="p-0">
-          <LiveCaptainMap
-            height="450px"
-            showCaptains={true}
-            showPassengers={true}
-            showRoutes={false}
-            showConnections={false}
-            showSearch={true}
-            showHeatmap={true}
-            enableClustering={false}
-            centerLocked={false}
-            radiusKm={100}
-          />
-        </CardContent>
-      </Card>
 
       {/* ── Booking Status Breakdown ───────────────────────────────────────── */}
       <div className="grid gap-6 md:grid-cols-2">
@@ -254,8 +288,8 @@ export function Reports() {
             </TableHeader>
             <TableBody>
               {[
-                { key: "oneWay",    label: "One Way" },
-                { key: "roundTrip", label: "Round Trip" },
+                { key: "oneway",    label: "One Way" },
+                { key: "roundtrip", label: "Round Trip" },
                 { key: "monthly",   label: "Monthly" },
               ].map(({ key, label }) => (
                 <TableRow key={key}>
@@ -269,7 +303,7 @@ export function Reports() {
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <CheckCircle className="w-4 h-4 text-green-500" />
-                      {bookings.filter((b) => b.tripType === key && b.status === "Completed").length}
+                      {bookings.filter((b) => fbTripTypeKey(b) === key && isCompleted(b.status)).length}
                     </div>
                   </TableCell>
                   <TableCell className="font-medium">
@@ -320,37 +354,27 @@ export function Reports() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {[...bookings]
-                  .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-                  .slice(0, 10)
-                  .map((b) => (
-                    <TableRow key={b._id}>
-                      <TableCell className="font-medium">{b.userId?.fullName ?? "—"}</TableCell>
-                      <TableCell className="text-sm text-gray-600 max-w-[160px] truncate">
-                        {b.source} → {b.destination}
-                      </TableCell>
-                      <TableCell className="text-xs capitalize">
-                        {b.tripType === "oneWay" ? "One Way" : b.tripType === "roundTrip" ? "Round Trip" : "Monthly"}
-                      </TableCell>
-                      <TableCell className="text-sm text-gray-500">{b.pickupDate}</TableCell>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-1">
-                          <IndianRupee className="w-3 h-3 text-gray-500" />
-                          {b.totalAmount.toLocaleString()}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          b.status === "Completed" ? "bg-green-100 text-green-700" :
-                          b.status === "Approved"  ? "bg-blue-100 text-blue-700" :
-                          b.status === "Pending"   ? "bg-amber-100 text-amber-700" :
-                          "bg-red-100 text-red-700"
-                        }`}>
-                          {b.status}
-                        </span>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                {bookings.slice(0, 10).map((b) => (
+                  <TableRow key={b.id}>
+                    <TableCell className="font-medium">{fbName(b)}</TableCell>
+                    <TableCell className="text-sm text-gray-600 max-w-[160px] truncate">
+                      {fbSource(b)} → {fbDest(b)}
+                    </TableCell>
+                    <TableCell className="text-xs capitalize">{fbTripType(b)}</TableCell>
+                    <TableCell className="text-sm text-gray-500">{fbDate(b)}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-1">
+                        <IndianRupee className="w-3 h-3 text-gray-500" />
+                        {fbAmount(b).toLocaleString()}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor(b.status)}`}>
+                        {b.status}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           )}
@@ -382,22 +406,22 @@ export function Reports() {
               </TableHeader>
               <TableBody>
                 {captains.map((c, index) => (
-                  <TableRow key={c._id} className="animate-fade-in-up" style={{ animationDelay: `${index * 40}ms` }}>
-                    <TableCell className="font-medium">{c.fullName}</TableCell>
-                    <TableCell>{c.phone}</TableCell>
+                  <TableRow key={c.id} className="animate-fade-in-up" style={{ animationDelay: `${index * 40}ms` }}>
+                    <TableCell className="font-medium">{captainName(c)}</TableCell>
+                    <TableCell>{captainPhone(c)}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Car className="w-4 h-4 text-gray-400" />
-                        {c.vehicleModel || c.vehicleType}
+                        {captainVehicle(c)}
                       </div>
                     </TableCell>
                     <TableCell className="text-sm text-gray-600 max-w-[160px] truncate">
-                      {c.routeFrom?.address} → {c.routeTo?.address}
+                      {c.routeFrom?.address ?? "—"} → {c.routeTo?.address ?? "—"}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
-                        {c.rating > 0
-                          ? <><TrendingUp className="w-4 h-4 text-amber-500" />{c.rating.toFixed(1)}</>
+                        {(c.rating ?? 0) > 0
+                          ? <><TrendingUp className="w-4 h-4 text-amber-500" />{(c.rating ?? 0).toFixed(1)}</>
                           : <span className="text-gray-400 text-sm">—</span>
                         }
                       </div>
@@ -409,7 +433,7 @@ export function Reports() {
                         c.status === "rejected" ? "bg-red-100 text-red-700" :
                         "bg-gray-100 text-gray-600"
                       }`}>
-                        {c.status}
+                        {c.status ?? "—"}
                       </span>
                     </TableCell>
                   </TableRow>
@@ -443,21 +467,19 @@ export function Reports() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {users.slice(0, 20).map((u) => (
-                  <TableRow key={u._id}>
-                    <TableCell className="font-medium">{u.fullName}</TableCell>
-                    <TableCell className="text-sm text-gray-600">{u.email}</TableCell>
-                    <TableCell className="text-sm text-gray-600">{u.phoneNo}</TableCell>
+                {users.slice(0, 20).map((u, i) => (
+                  <TableRow key={u.id ?? i}>
+                    <TableCell className="font-medium">{userName(u)}</TableCell>
+                    <TableCell className="text-sm text-gray-600">{u.email ?? "—"}</TableCell>
+                    <TableCell className="text-sm text-gray-600">{userPhone(u)}</TableCell>
                     <TableCell>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${
                         u.role === "admin" ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-600"
                       }`}>
-                        {u.role}
+                        {u.role ?? "user"}
                       </span>
                     </TableCell>
-                    <TableCell className="text-sm text-gray-500">
-                      {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—"}
-                    </TableCell>
+                    <TableCell className="text-sm text-gray-500">{userDate(u)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

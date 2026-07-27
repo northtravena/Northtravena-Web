@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useFirebaseUserServices, useUpdateFirebaseUserService } from "@/lib/queries";
+import { usePagination } from "@/lib/usePagination";
+import { Pagination } from "@/components/Pagination";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface FirebaseUser {
@@ -414,6 +416,7 @@ export function AppServices() {
   const [selected, setSelected]     = useState<UserService | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const pagination = usePagination();
 
   const { data: rawServices = [], isLoading: loading, error, refetch } = useFirebaseUserServices();
   const updateService = useUpdateFirebaseUserService();
@@ -459,6 +462,17 @@ export function AppServices() {
       (s.status           ?? "").toLowerCase().includes(q)
     );
   });
+
+  // Client-side pagination
+  const paginatedServices = pagination.slice(filtered);
+
+  // Update pagination total when filtered data changes
+  const filteredCount = filtered.length;
+  const [prevCount, setPrevCount] = useState(0);
+  if (filteredCount !== prevCount) {
+    setPrevCount(filteredCount);
+    pagination.setTotal(filteredCount);
+  }
 
   const count = (st: string) =>
     services.filter((s) => (s.status ?? "").toLowerCase() === st.toLowerCase()).length;
@@ -560,6 +574,7 @@ export function AppServices() {
               <p>{search ? "No services match your search" : "No user services found"}</p>
             </div>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -573,7 +588,7 @@ export function AppServices() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((s) => {
+                {paginatedServices.map((s) => {
                   const name  = getName(s);
                   const email = getEmail(s);
                   const ac    = avatarColor(name);
@@ -670,6 +685,17 @@ export function AppServices() {
                 })}
               </TableBody>
             </Table>
+            {filtered.length > 0 && (
+              <Pagination
+                page={pagination.page}
+                limit={pagination.limit}
+                total={filtered.length}
+                totalPages={pagination.totalPages}
+                onPageChange={pagination.setPage}
+                onLimitChange={pagination.setLimit}
+              />
+            )}
+            </>
           )}
               </CardContent>
             </Card>

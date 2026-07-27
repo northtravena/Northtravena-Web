@@ -19,6 +19,8 @@ import {
   useCreateServiceType,
   useUpsertVehicleRate,
 } from "@/lib/queries";
+import { usePagination } from "@/lib/usePagination";
+import { Pagination } from "@/components/Pagination";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const TRIP_LABELS: Record<string, string> = {
@@ -144,11 +146,16 @@ function ServiceForm({ initial, serviceTypes, onSave, onClose }: ServiceFormProp
 // ─── Main Fleet Page ──────────────────────────────────────────────────────────
 export function Fleet() {
   const [tab, setTab] = useState("vehicles");
+  const pagination = usePagination();
 
   // ── Query hooks ─────────────────────────────────────────────────────────────
-  const { data: services = [], isLoading: loading, error, refetch: refetchServices } = useAdminServices();
+  const { data: servicesResult, isLoading: loading, error, refetch: refetchServices } = useAdminServices(pagination.page, pagination.limit);
   const { data: serviceTypes = [], refetch: refetchTypes } = useServiceTypes();
   const { data: vehicleRates = [], refetch: refetchRates } = useVehicleRates();
+
+  const services = servicesResult?.data ?? [];
+  const servicesTotal = servicesResult?.pagination?.total ?? 0;
+  const servicesTotalPages = servicesResult?.pagination?.totalPages ?? 1;
 
   // Mutations
   const createService = useCreateService();
@@ -387,6 +394,16 @@ export function Fleet() {
                     ))}
                   </TableBody>
                 </Table>
+              )}
+              {services.length > 0 && (
+                <Pagination
+                  page={pagination.page}
+                  limit={pagination.limit}
+                  total={servicesTotal}
+                  totalPages={servicesTotalPages}
+                  onPageChange={pagination.setPage}
+                  onLimitChange={pagination.setLimit}
+                />
               )}
             </CardContent>
           </Card>

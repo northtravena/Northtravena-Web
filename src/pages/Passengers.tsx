@@ -24,6 +24,8 @@ import {
   useCreatePassenger,
   useAvailableFirebaseUsers,
 } from "@/lib/queries";
+import { usePagination } from "@/lib/usePagination";
+import { Pagination } from "@/components/Pagination";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const getInitials = (name: string) =>
@@ -865,6 +867,7 @@ export function Passengers() {
   const [clusteringEnabled, setClusteringEnabled] = useState(false);
   const [mapMatchFilter, setMapMatchFilter] = useState<MatchStatusFilter>("all");
   const [mapCaptainStatusFilter, setMapCaptainStatusFilter] = useState<CaptainStatusFilter>("all");
+  const pagination = usePagination();
 
   const createPassenger = useCreatePassenger();
 
@@ -920,6 +923,17 @@ export function Passengers() {
       return re.test(name) || re.test(email) || re.test(phone) || re.test(captainName);
     })
     : statusFilteredPassengers;
+
+  // Client-side pagination
+  const paginatedPassengers = pagination.slice(filteredPassengers);
+
+  // Update pagination total when filtered data changes
+  const filteredCount = filteredPassengers.length;
+  const [prevCount, setPrevCount] = useState(0);
+  if (filteredCount !== prevCount) {
+    setPrevCount(filteredCount);
+    pagination.setTotal(filteredCount);
+  }
 
   const stats = [
     {
@@ -1109,6 +1123,7 @@ export function Passengers() {
                     <p className="text-xs text-gray-300 mt-1">Passengers will appear here once they register for a daily commute</p>
                   </div>
                 ) : (
+                  <>
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -1121,7 +1136,7 @@ export function Passengers() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredPassengers.map((p) => {
+                      {paginatedPassengers.map((p) => {
                         const config = matchStatusConfig[p.matchStatus] ?? matchStatusConfig.unmatched;
                         const captain =
                           typeof p.assignedCaptain === "object" && p.assignedCaptain
@@ -1214,6 +1229,17 @@ export function Passengers() {
                       })}
                     </TableBody>
                   </Table>
+                  {filteredPassengers.length > 0 && (
+                    <Pagination
+                      page={pagination.page}
+                      limit={pagination.limit}
+                      total={filteredPassengers.length}
+                      totalPages={pagination.totalPages}
+                      onPageChange={pagination.setPage}
+                      onLimitChange={pagination.setLimit}
+                    />
+                  )}
+                  </>
                 )}
               </CardContent>
             </Card>

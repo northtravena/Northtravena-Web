@@ -2,9 +2,9 @@
 // staleTime is set globally to 2 min in main.jsx, so switching tabs won't re-fetch
 // unless data is actually stale.
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { api } from "./api";
-import type { Booking, Captain, UserService, Service, ServiceType, VehicleRate, AdminUser, Passenger, PassengerLocation, Complaint } from "@/types/api";
+import type { Booking, Captain, UserService, Service, ServiceType, VehicleRate, AdminUser, Passenger, PassengerLocation, Complaint, PaginatedResponse } from "@/types/api";
 
 // ─── Users (for dropdowns) ───────────────────────────────────────────────────
 export function useAllUsers() {
@@ -16,22 +16,28 @@ export function useAllUsers() {
 
 // ─── Query Keys ────────────────────────────────────────────────────────────────
 export const QK = {
-  // Admin — bookings
-  adminBookings: (status?: string) => ["admin", "bookings", status ?? "all"] as const,
-  // Admin — captains
-  adminCaptains: (status: string) => ["admin", "captains", status] as const,
-  // Admin — passengers
-  adminPassengers: (matchStatus?: string) => ["admin", "passengers", matchStatus ?? "all"] as const,
+  // Admin — bookings (paginated)
+  adminBookings: (status?: string, page?: number, limit?: number) =>
+    ["admin", "bookings", status ?? "all", page ?? 1, limit ?? 20] as const,
+  // Admin — captains (paginated)
+  adminCaptains: (status: string, page?: number, limit?: number) =>
+    ["admin", "captains", status, page ?? 1, limit ?? 20] as const,
+  // Admin — passengers (paginated)
+  adminPassengers: (matchStatus?: string, page?: number, limit?: number) =>
+    ["admin", "passengers", matchStatus ?? "all", page ?? 1, limit ?? 20] as const,
   adminPassengersUnmatched: () => ["admin", "passengers", "unmatched"] as const,
-  // Admin — user-services
-  adminUserServices: (status?: string) => ["admin", "user-services", status ?? "all"] as const,
-  // Admin — services catalog
-  adminServices: () => ["admin", "services"] as const,
+  // Admin — user-services (paginated)
+  adminUserServices: (status?: string, page?: number, limit?: number) =>
+    ["admin", "user-services", status ?? "all", page ?? 1, limit ?? 20] as const,
+  // Admin — services catalog (paginated)
+  adminServices: (page?: number, limit?: number) =>
+    ["admin", "services", page ?? 1, limit ?? 20] as const,
   // Public catalog
   serviceTypes: () => ["service-types"] as const,
   vehicleRates: () => ["vehicle-rates"] as const,
-  // Admin users / passengers
-  adminUsers: (role?: string, q?: string) => ["admin", "users", role, q] as const,
+  // Admin users / passengers (paginated)
+  adminUsers: (role?: string, q?: string, page?: number, limit?: number) =>
+    ["admin", "users", role, q, page ?? 1, limit ?? 20] as const,
   // Firebase
   firebaseBookings: () => ["firebase", "bookings"] as const,
   firebaseUserServices: () => ["firebase", "user-services"] as const,
@@ -39,55 +45,62 @@ export const QK = {
 } as const;
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
-export function useAllBookings() {
+export function useAllBookings(page = 1, limit = 20) {
   return useQuery({
-    queryKey: QK.adminBookings(),
-    queryFn: () => api.get<Booking[]>("/admin/bookings"),
+    queryKey: QK.adminBookings(undefined, page, limit),
+    queryFn: () => api.get<PaginatedResponse<Booking>>(`/admin/bookings?page=${page}&limit=${limit}`),
+    placeholderData: keepPreviousData,
   });
 }
 
-export function useApprovedBookings() {
+export function useApprovedBookings(page = 1, limit = 20) {
   return useQuery({
-    queryKey: QK.adminBookings("Approved"),
-    queryFn: () => api.get<Booking[]>("/admin/bookings?status=Approved"),
+    queryKey: QK.adminBookings("Approved", page, limit),
+    queryFn: () => api.get<PaginatedResponse<Booking>>(`/admin/bookings?status=Approved&page=${page}&limit=${limit}`),
+    placeholderData: keepPreviousData,
   });
 }
 
-export function usePendingUserServices() {
+export function usePendingUserServices(page = 1, limit = 20) {
   return useQuery({
-    queryKey: QK.adminUserServices("Pending"),
-    queryFn: () => api.get<UserService[]>("/admin/user-services?status=Pending"),
+    queryKey: QK.adminUserServices("Pending", page, limit),
+    queryFn: () => api.get<PaginatedResponse<UserService>>(`/admin/user-services?status=Pending&page=${page}&limit=${limit}`),
+    placeholderData: keepPreviousData,
   });
 }
 
-export function useActiveCaptains() {
+export function useActiveCaptains(page = 1, limit = 20) {
   return useQuery({
-    queryKey: QK.adminCaptains("active"),
-    queryFn: () => api.get<Captain[]>("/admin/captains?status=active"),
+    queryKey: QK.adminCaptains("active", page, limit),
+    queryFn: () => api.get<PaginatedResponse<Captain>>(`/admin/captains?status=active&page=${page}&limit=${limit}`),
+    placeholderData: keepPreviousData,
   });
 }
 
 // ─── Captains page ─────────────────────────────────────────────────────────────
-export function useCaptainsByStatus(status: string) {
+export function useCaptainsByStatus(status: string, page = 1, limit = 20) {
   return useQuery({
-    queryKey: QK.adminCaptains(status),
-    queryFn: () => api.get<Captain[]>(`/admin/captains?status=${status}`),
+    queryKey: QK.adminCaptains(status, page, limit),
+    queryFn: () => api.get<PaginatedResponse<Captain>>(`/admin/captains?status=${status}&page=${page}&limit=${limit}`),
+    placeholderData: keepPreviousData,
   });
 }
 
 // ─── Rides page ────────────────────────────────────────────────────────────────
-export function useBookingsByStatus(status: string) {
+export function useBookingsByStatus(status: string, page = 1, limit = 20) {
   return useQuery({
-    queryKey: QK.adminBookings(status),
-    queryFn: () => api.get<Booking[]>(`/admin/bookings?status=${status}`),
+    queryKey: QK.adminBookings(status, page, limit),
+    queryFn: () => api.get<PaginatedResponse<Booking>>(`/admin/bookings?status=${status}&page=${page}&limit=${limit}`),
+    placeholderData: keepPreviousData,
   });
 }
 
 // ─── Fleet page ────────────────────────────────────────────────────────────────
-export function useAdminServices() {
+export function useAdminServices(page = 1, limit = 20) {
   return useQuery({
-    queryKey: QK.adminServices(),
-    queryFn: () => api.get<Service[]>("/admin/services"),
+    queryKey: QK.adminServices(page, limit),
+    queryFn: () => api.get<PaginatedResponse<Service>>(`/admin/services?page=${page}&limit=${limit}`),
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -106,12 +119,17 @@ export function useVehicleRates() {
 }
 
 // ─── Passengers page ───────────────────────────────────────────────────────────
-export function usePassengers(search: string) {
+export function usePassengers(search: string, page = 1, limit = 20) {
   const q = search.trim();
   return useQuery({
-    queryKey: QK.adminUsers("user", q),
+    queryKey: QK.adminUsers("user", q, page, limit),
     queryFn: () =>
-      api.get<AdminUser[]>(q ? `/admin/users?role=user&q=${encodeURIComponent(q)}` : "/admin/users?role=user"),
+      api.get<PaginatedResponse<AdminUser>>(
+        q
+          ? `/admin/users?role=user&q=${encodeURIComponent(q)}&page=${page}&limit=${limit}`
+          : `/admin/users?role=user&page=${page}&limit=${limit}`
+      ),
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -126,11 +144,16 @@ export function usePassengerLocations() {
 
 // ─── Daily Rides — Passengers ─────────────────────────────────────────────────
 
-export function useDailyRidePassengers(matchStatus?: string) {
-  const qs = matchStatus && matchStatus !== "all" ? `?matchStatus=${matchStatus}` : "";
+export function useDailyRidePassengers(matchStatus?: string, page = 1, limit = 20) {
+  const params = new URLSearchParams();
+  if (matchStatus && matchStatus !== "all") params.set("matchStatus", matchStatus);
+  params.set("page", String(page));
+  params.set("limit", String(limit));
+  const qs = params.toString();
   return useQuery({
-    queryKey: QK.adminPassengers(matchStatus),
-    queryFn: () => api.get<Passenger[]>(`/admin/passengers${qs}`),
+    queryKey: QK.adminPassengers(matchStatus, page, limit),
+    queryFn: () => api.get<PaginatedResponse<Passenger>>(`/admin/passengers?${qs}`),
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -247,6 +270,14 @@ export function useFirebaseBookingsByRideType(rideType?: string) {
         : "/firebase/bookings";
       return api.get<unknown[]>(url);
     },
+  });
+}
+
+// ─── Firebase Ride Bookings (Ride Sharing) ────────────────────────────────────
+export function useFirebaseRideBookings() {
+  return useQuery({
+    queryKey: ["firebase", "ride-bookings"],
+    queryFn: () => api.get<unknown[]>("/firebase/ride-bookings"),
   });
 }
 

@@ -2,17 +2,22 @@ import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
   Car, MapPin, Calendar, CheckCircle, Clock,
   XCircle, RefreshCw, User, X,
-  ArrowRight, Banknote, Layers,
+  ArrowRight, Banknote, Layers, Map, List, Navigation,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useFirebaseBookings } from "@/lib/queries";
+import { useFirebaseBookings, useUpdateFirebaseBooking } from "@/lib/queries";
 import { api } from "@/lib/api";
+import { usePagination } from "@/lib/usePagination";
+import { Pagination } from "@/components/Pagination";
+import { LiveCaptainMap } from "@/components/LiveCaptainMap";
+import { MapControls, type MatchStatusFilter, type CaptainStatusFilter } from "@/components/MapControls";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface FirebaseUser {
@@ -536,46 +541,96 @@ function MetaRow({ label, value, mono = false }: { label: string; value: string;
   );
 }
 
+// ─── Status tabs ──────────────────────────────────────────────────────────────
+type StatusTab = "all" | "pending" | "approved" | "completed" | "canceled";
+
+const STATUS_TABS: { key: StatusTab; label: string; icon: React.ElementType; color: string }[] = [
+  { key: "all",       label: "All",        icon: Car,        color: "text-emerald-600" },
+  { key: "pending",   label: "Pending",    icon: Clock,      color: "text-amber-600" },
+  { key: "approved",  label: "Approved",   icon: Navigation, color: "text-blue-600" },
+  { key: "completed", label: "Completed",  icon: CheckCircle, color: "text-green-600" },
+  { key: "canceled",  label: "Canceled",   icon: XCircle,    color: "text-red-600" },
+];
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 export function Services() {
   const [selected, setSelected] = useState<FirebaseBooking | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
- 
+  const [activeTab, setActiveTab] = useState<StatusTab>("all");
+  const [viewMode, setViewMode] = useState<"table" | "map">("table");
+  const [mapCenter, setMapCenter] = useState({ lat: 35.9208, lng: 74.3145, radius: 50 });
+  const [clusteringEnabled, setClusteringEnabled] = useState(false);
+  const [mapMatchFilter, setMapMatchFilter] = useState<MatchStatusFilter>("all");
+  const [captainStatusFilter, setCaptainStatusFilter] = useState<CaptainStatusFilter>("all");
+  const pagination = usePagination();
+
   const { data: rawBookings = [], isLoading: loading, error, refetch } = useFirebaseBookings();
   const bookings = rawBookings as FirebaseBooking[];
- 
+  const updateBooking = useUpdateFirebaseBooking();
+
+  // Filter by status tab
+  const filteredBookings = activeTab === "all"
+    ? bookings
+    : bookings.filter((b) => {
+        const s = b.status?.toLowerCase();
+        if (activeTab === "pending") return s === "pending";
+        if (activeTab === "approved") return s === "approved" || s === "accepted";
+        if (activeTab === "completed") return s === "completed" || s === "complete";
+        if (activeTab === "canceled") return s === "canceled" || s === "cancelled";
+        return true;
+      });
+
+  // Client-side pagination
+  const paginatedBookings = pagination.slice(filteredBookings);
+
+  // Update pagination total when filtered data changes
+  const filteredCount = filteredBookings.length;
+  const [prevCount, setPrevCount] = useState(0);
+  if (filteredCount !== prevCount) {
+    setPrevCount(filteredCount);
+    pagination.setTotal(filteredCount);
+  }
+
+  // Status counts
+  const countByStatus = (s: string) => {
+    return bookings.filter((b) => {
+      const status = b.status?.toLowerCase();
+      if (s === "pending") return status === "pending";
+      if (s === "approved") return status === "approved" || status === "accepted";
+      if (s === "completed") return status === "completed" || status === "complete";
+      if (s === "canceled") return status === "canceled" || status === "cancelled";
+      return false;
+    }).length;
+  };
+
   // Open drawer
   const openDrawer = (b: FirebaseBooking) => {
     setSelected(b);
-    // tiny rAF so the element is mounted before the open class is applied
     requestAnimationFrame(() => setDrawerOpen(true));
   };
- 
-  // Close drawer — animate out first, then clear data
+
+  // Close drawer
   const closeDrawer = useCallback(() => {
     setDrawerOpen(false);
-    setTimeout(() => setSelected(null), 380); // matches transition duration
+    setTimeout(() => setSelected(null), 380);
   }, []);
 
-
-  const count = (s: string) => {
-    return bookings.filter((b) => {
-      const status = b.status?.toLowerCase() === s;
-      // For "pending" count, exclude oneWay and roundTrip (they're auto-approved)
-      if (s === "pending") {
-        const tripType = (b.tripType as string)?.toLowerCase().replace(/[_\s-]/g, "");
-        const isAutoApproved = tripType === "oneway" || tripType === "roundtrip";
-        return status && !isAutoApproved;
-      }
-      return status;
-    }).length;
+  // Quick action: update status
+  const handleUpdateStatus = async (id: string, status: string) => {
+    try {
+      await updateBooking.mutateAsync({ id, status });
+      toast.success(`Booking ${status.toLowerCase()} successfully`);
+      refetch();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Update failed");
+    }
   };
 
   const stats = [
     { title: "Total Bookings", value: bookings.length, icon: Car, color: "text-emerald-600", bgColor: "bg-emerald-50" },
-    { title: "Pending", value: count("pending"), icon: Clock, color: "text-amber-600", bgColor: "bg-amber-50" },
-    { title: "Approved", value: count("approved"), icon: CheckCircle, color: "text-blue-600", bgColor: "bg-blue-50" },
-    { title: "Completed", value: count("completed"), icon: MapPin, color: "text-purple-600", bgColor: "bg-purple-50" },
+    { title: "Pending", value: countByStatus("pending"), icon: Clock, color: "text-amber-600", bgColor: "bg-amber-50" },
+    { title: "Approved", value: countByStatus("approved"), icon: CheckCircle, color: "text-blue-600", bgColor: "bg-blue-50" },
+    { title: "Completed", value: countByStatus("completed"), icon: MapPin, color: "text-purple-600", bgColor: "bg-purple-50" },
   ];
 
   if (loading) {
@@ -625,92 +680,218 @@ export function Services() {
         ))}
       </div>
 
-      {/* Table */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Car className="w-5 h-5 text-emerald-600" />
-            All Bookings
-            <span className="text-xs font-normal text-gray-400 ml-1">— click a row to view details</span>
-          </CardTitle>
-          <div className="flex gap-2">
-            <Button onClick={() => refetch()} variant="outline" size="sm" className="gap-2">
-              <RefreshCw className="w-4 h-4" /> Refresh
-            </Button>
+      {/* View Toggle + Refresh */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-1">
+          <button
+            onClick={() => setViewMode("table")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${viewMode === "table"
+                ? "bg-white text-gray-900 shadow-sm"
+                : "text-gray-500 hover:text-gray-700"
+              }`}
+          >
+            <List className="w-4 h-4" />
+            Table
+          </button>
+          <button
+            onClick={() => setViewMode("map")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${viewMode === "map"
+                ? "bg-white text-gray-900 shadow-sm"
+                : "text-gray-500 hover:text-gray-700"
+              }`}
+          >
+            <Map className="w-4 h-4" />
+            Map
+          </button>
+        </div>
+        <Button onClick={() => refetch()} variant="outline" size="sm" className="gap-2">
+          <RefreshCw className="w-4 h-4" /> Refresh
+        </Button>
+      </div>
+
+      {/* Map View */}
+      {viewMode === "map" && (
+        <div className="space-y-4">
+          <MapControls
+            onLocationChange={(lat, lng, radius) => setMapCenter({ lat, lng, radius })}
+            matchStatusFilter={mapMatchFilter}
+            onMatchStatusChange={setMapMatchFilter}
+            captainStatusFilter={captainStatusFilter}
+            onCaptainStatusChange={setCaptainStatusFilter}
+            clusteringEnabled={clusteringEnabled}
+            onClusteringToggle={setClusteringEnabled}
+          />
+          <div className="rounded-xl overflow-hidden border border-gray-200">
+            <LiveCaptainMap
+              centerLat={mapCenter.lat}
+              centerLng={mapCenter.lng}
+              radiusKm={mapCenter.radius}
+              height="500px"
+              showCaptains={true}
+              showPassengers={true}
+              showRoutes={true}
+              showConnections={true}
+              compactLegend={false}
+              enableClustering={clusteringEnabled}
+              matchStatusFilter={mapMatchFilter}
+              captainStatusFilter={captainStatusFilter}
+            />
           </div>
-        </CardHeader>
-        <CardContent>
-          {bookings.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              <Car className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <p>No bookings found</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Trip Type</TableHead>
-                  <TableHead>Route</TableHead>
-                  <TableHead>Pickup Date</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {bookings.map((b) => {
-                  const name = resolveName(b);
-                  const email = resolveEmail(b);
-                  const ac = avatarColor(name);
-                  return (
-                    <TableRow key={b.id}
-                      className="cursor-pointer hover:bg-gray-50 transition-colors"
-                      onClick={() => openDrawer(b)}>
-                      <TableCell>
-                        <div className="flex items-center gap-2.5">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${ac}`}>
-                            {getInitials(name)}
-                          </div>
-                          <div>
-                            <p className="font-medium text-gray-900 text-sm">{name}</p>
-                            {email && <p className="text-xs text-gray-400">{email}</p>}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <span className={tripTypePill(b.tripType)}>{tripTypeLabel(b.tripType)}</span>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1 text-sm text-gray-600">
-                          <MapPin className="w-3 h-3 flex-shrink-0 text-emerald-500" />
-                          <span className="truncate max-w-[140px]">{resolveSource(b)}</span>
-                          <ArrowRight className="w-3 h-3 flex-shrink-0 text-gray-400" />
-                          <span className="truncate max-w-[140px]">{resolveDest(b)}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1 text-sm text-gray-600">
-                          <Calendar className="w-3.5 h-3.5" />
-                          {resolveDate(b)}
-                        </div>
-                        {resolveTime(b) && (
-                          <p className="text-xs text-gray-400 mt-0.5">{resolveTime(b)}</p>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <StatusPill status={b.status} />
-                      </TableCell>
-                      <TableCell className="text-right font-semibold text-gray-800">
-                        {resolveAmount(b).toLocaleString()}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+        </div>
+      )}
+
+      {/* Table View with Status Tabs */}
+      {viewMode === "table" && (
+        <Tabs value={activeTab} onValueChange={(v) => {
+          setActiveTab(v as StatusTab);
+          pagination.setPage(1);
+        }} className="w-full">
+          <TabsList className="grid w-full max-w-xl grid-cols-5">
+            {STATUS_TABS.map(({ key, label, icon: Icon }) => (
+              <TabsTrigger key={key} value={key} className="flex items-center gap-1.5">
+                <Icon className="w-4 h-4" />
+                {label} ({key === "all" ? bookings.length : countByStatus(key)})
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          {STATUS_TABS.map(({ key, label, icon: Icon, color }) => (
+            <TabsContent key={key} value={key} className="mt-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Icon className={`w-5 h-5 ${color}`} />
+                    {label} Bookings
+                    <span className="ml-auto text-sm font-normal text-gray-400">
+                      {key === "all" ? bookings.length : countByStatus(key)} total — click a row to view details
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {paginatedBookings.length === 0 ? (
+                    <div className="text-center py-12 text-gray-400">
+                      <Car className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                      <p>No {label.toLowerCase()} bookings</p>
+                    </div>
+                  ) : (
+                    <>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Customer</TableHead>
+                          <TableHead>Trip Type</TableHead>
+                          <TableHead>Route</TableHead>
+                          <TableHead>Pickup Date</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Amount</TableHead>
+                          <TableHead className="text-right">Commission (10%)</TableHead>
+                          {key === "pending" || key === "approved" ? (
+                            <TableHead>Actions</TableHead>
+                          ) : null}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {paginatedBookings.map((b) => {
+                          const name = resolveName(b);
+                          const email = resolveEmail(b);
+                          const ac = avatarColor(name);
+                          return (
+                            <TableRow key={b.id}
+                              className="cursor-pointer hover:bg-gray-50 transition-colors"
+                              onClick={() => openDrawer(b)}>
+                              <TableCell>
+                                <div className="flex items-center gap-2.5">
+                                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${ac}`}>
+                                    {getInitials(name)}
+                                  </div>
+                                  <div>
+                                    <p className="font-medium text-gray-900 text-sm">{name}</p>
+                                    {email && <p className="text-xs text-gray-400">{email}</p>}
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <span className={tripTypePill(b.tripType)}>{tripTypeLabel(b.tripType)}</span>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-1 text-sm text-gray-600">
+                                  <MapPin className="w-3 h-3 flex-shrink-0 text-emerald-500" />
+                                  <span className="truncate max-w-[140px]">{resolveSource(b)}</span>
+                                  <ArrowRight className="w-3 h-3 flex-shrink-0 text-gray-400" />
+                                  <span className="truncate max-w-[140px]">{resolveDest(b)}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-1 text-sm text-gray-600">
+                                  <Calendar className="w-3.5 h-3.5" />
+                                  {resolveDate(b)}
+                                </div>
+                                {resolveTime(b) && (
+                                  <p className="text-xs text-gray-400 mt-0.5">{resolveTime(b)}</p>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <StatusPill status={b.status} />
+                              </TableCell>
+                              <TableCell className="text-right font-semibold text-gray-800">
+                                {resolveAmount(b).toLocaleString()}
+                              </TableCell>
+                              <TableCell className="text-right font-medium text-amber-600">
+                                {Math.round(resolveAmount(b) * 0.10).toLocaleString()}
+                              </TableCell>
+                              {key === "pending" && (
+                                <TableCell onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex gap-1">
+                                    <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-xs px-2 h-7"
+                                      disabled={updateBooking.isPending}
+                                      onClick={() => handleUpdateStatus(b.id, "Approved")}>
+                                      Approve
+                                    </Button>
+                                    <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50 text-xs px-2 h-7"
+                                      disabled={updateBooking.isPending}
+                                      onClick={() => handleUpdateStatus(b.id, "Cancelled")}>
+                                      Decline
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              )}
+                              {key === "approved" && (
+                                <TableCell onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex gap-1">
+                                    <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-xs px-2 h-7"
+                                      disabled={updateBooking.isPending}
+                                      onClick={() => handleUpdateStatus(b.id, "Completed")}>
+                                      Complete
+                                    </Button>
+                                    <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50 text-xs px-2 h-7"
+                                      disabled={updateBooking.isPending}
+                                      onClick={() => handleUpdateStatus(b.id, "Cancelled")}>
+                                      Cancel
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              )}
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                    <Pagination
+                      page={pagination.page}
+                      limit={pagination.limit}
+                      total={filteredBookings.length}
+                      totalPages={pagination.totalPages}
+                      onPageChange={pagination.setPage}
+                      onLimitChange={pagination.setLimit}
+                    />
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          ))}
+        </Tabs>
+      )}
     </div>
   );
 }

@@ -10,7 +10,7 @@ import {
   MapPin, Clock, ArrowRight, Calendar, Wrench,
 } from "lucide-react";
 import {
-  useAllBookings, useFirebaseBookings, useFirebaseUserServices,
+  useFirebaseBookings, useFirebaseUserServices,
   usePendingUserServices, useActiveCaptains,
 } from "@/lib/queries";
 import { LiveCaptainMap } from "@/components/LiveCaptainMap";
@@ -123,11 +123,16 @@ function ApprovedPill() {
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 export function Dashboard() {
-  const { data: bookings = [] }                                    = useAllBookings();
   const { data: rawFbBookings = [] }                               = useFirebaseBookings();
   const { data: rawFbServices = [] }                               = useFirebaseUserServices();
-  const { data: pendingServices = [], isLoading, error }           = usePendingUserServices();
-  const { data: activeCaptains = [] }                              = useActiveCaptains();
+  const { data: pendingServicesResult, isLoading, error }           = usePendingUserServices(1, 1000);
+  const { data: activeCaptainsResult }                              = useActiveCaptains(1, 1000);
+
+  const fbBookings = rawFbBookings as FbBooking[];
+  const pendingServices = pendingServicesResult?.data ?? [];
+  const activeCaptains = activeCaptainsResult?.data ?? [];
+
+  const totalActiveCaptains = activeCaptainsResult?.pagination?.total ?? activeCaptains.length;
 
   const [mapCenter, setMapCenter] = useState({ lat: 35.9208, lng: 74.3145, radius: 50 });
   const [vehicleTypeFilter, setVehicleTypeFilter] = useState<VehicleTypeFilter>("all");
@@ -137,25 +142,32 @@ export function Dashboard() {
 
   const today = todayStr();
 
-  const activeBookings = (rawFbBookings as FbBooking[]).filter(
-    (b) => b.status?.toLowerCase() === "approved" && (b.pickupDate ?? b.date ?? "").startsWith(today)
+  // Helpers for Firebase booking fields (multiple field names)
+  const fbAmount = (b: FbBooking) => b.totalAmount ?? b.amount ?? b.fare ?? b.price ?? 0;
+  const fbDate = (b: FbBooking) => b.pickupDate ?? b.date ?? "";
+
+  const PLATFORM_FEE_PCT = 0.10; // 10% platform commission
+
+  const activeBookings = fbBookings.filter(
+    (b) => b.status?.toLowerCase() === "approved" && fbDate(b).startsWith(today)
   );
 
   const activeServices = (rawFbServices as FbUserService[]).filter(
     (s) => (s.status ?? "").toLowerCase() === "approved"
   );
 
-  const bookingsToday = bookings.filter((b) => b.pickupDate?.startsWith(today)).length;
+  const bookingsToday = fbBookings.filter((b) => fbDate(b).startsWith(today)).length;
 
-  const revenueToday = bookings
-    .filter((b) => b.status === "Completed" && b.pickupDate?.startsWith(today))
-    .reduce((sum, b) => sum + (b.totalAmount ?? 0), 0);
+  // Total Travena earnings = 10% commission on ALL completed bookings
+  const totalRevenue = fbBookings
+    .filter((b) => b.status?.toLowerCase() === "completed")
+    .reduce((sum, b) => sum + Math.round(fbAmount(b) * PLATFORM_FEE_PCT), 0);
 
   const stats = [
-    { title: "Active Captains", value: activeCaptains.length,                                        icon: Users,       color: "text-emerald-600", bgColor: "bg-emerald-50" },
-    { title: "Total Bookings",  value: bookings.length,                                              icon: UserCheck,   color: "text-blue-600",    bgColor: "bg-blue-50"    },
-    { title: "Bookings Today",  value: bookingsToday,                                                icon: Car,         color: "text-purple-600",  bgColor: "bg-purple-50"  },
-    { title: "Revenue (PKR)",   value: revenueToday > 0 ? `Rs. ${revenueToday.toLocaleString()}` : "—", icon: IndianRupee, color: "text-amber-600",   bgColor: "bg-amber-50"   },
+    { title: "Active Captains", value: totalActiveCaptains,                                        icon: Users,       color: "text-emerald-600", bgColor: "bg-emerald-50" },
+    { title: "Total Bookings",  value: fbBookings.length,                                          icon: UserCheck,   color: "text-blue-600",    bgColor: "bg-blue-50"    },
+    { title: "Bookings Today",  value: bookingsToday,                                              icon: Car,         color: "text-purple-600",  bgColor: "bg-purple-50"  },
+    { title: "Travena Earnings (PKR)",   value: totalRevenue > 0 ? `Rs. ${totalRevenue.toLocaleString()}` : "—", icon: IndianRupee, color: "text-amber-600",   bgColor: "bg-amber-50"   },
   ];
 
   if (isLoading) {

@@ -4,6 +4,16 @@ const BASE = import.meta.env.PROD
   ? "https://api.northtravena.com/api/v1"
   : "/api/v1";
 
+interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem("nt_token");
@@ -23,7 +33,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   // Try to parse JSON — guard against empty bodies (204, network cut, etc.)
-  let json: { success: boolean; message?: string; data?: unknown } | null = null;
+  let json: ApiResponse<unknown> | null = null;
   const text = await res.text();
   if (text) {
     try {
@@ -37,11 +47,17 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (res.status === 401) {
     localStorage.removeItem("nt_token");
     localStorage.removeItem("nt_user");
-    throw new Error(json?.message ?? "Unauthorized");
+    throw new Error(json?.data as string ?? "Unauthorized");
   }
 
   if (!res.ok || !json?.success) {
-    throw new Error(json?.message ?? `Request failed with status ${res.status}`);
+    throw new Error((json?.data as string) ?? `Request failed with status ${res.status}`);
+  }
+
+  // If the response includes pagination metadata, return the full wrapper
+  // so paginated hooks can access both data and pagination info
+  if (json.pagination) {
+    return json as unknown as T;
   }
 
   return json.data as T;
